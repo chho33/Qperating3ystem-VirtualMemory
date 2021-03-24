@@ -33,10 +33,18 @@ static int walk_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 	pte_t *pte;
 	int err = 0;
 	const struct my_mm_walk_ops *ops = walk->ops;
+	unsigned long paddr = 0;
+	unsigned long page_addr = 0;
+	unsigned long page_offset = 0;
 
 	pte = pte_offset_map(pmd, addr);
 	for (;;) {
+		page_addr = pte_val(*pte) & PAGE_MASK;
+		page_offset = addr & ~PAGE_MASK;
+		paddr = page_addr | page_offset;
 		pr_info("                    pte: %lx, %lx", &addr, addr);
+		printk("                    page_addr = %lx, page_offset = %lx\n", page_addr, page_offset);
+		printk("                    vaddr = %lx, paddr = %lx\n", addr, paddr);
 		err = ops->pte_entry(pte, addr, addr + PAGE_SIZE, walk);
 		if (err)
 		       break;

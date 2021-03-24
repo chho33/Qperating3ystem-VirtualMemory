@@ -68,5 +68,7 @@ static inline int user_bit(unsigned long pte_entry)
 
 int main(int argc, char *argv[])
 {
+	get_pagetable_layout_syscall(NULL);
+	expose_page_table_syscall(-1, NULL);
 	return 0;
 }

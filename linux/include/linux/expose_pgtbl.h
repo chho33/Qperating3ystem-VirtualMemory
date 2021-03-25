@@ -4,6 +4,8 @@
 #include <linux/types.h>
 #include <linux/pagewalk.h>
 
+#define ADDR_SIZE sizeof(unsigned long)
+
 struct pagetable_layout_info {
 	uint32_t pgdir_shift;
 	uint32_t p4d_shift;

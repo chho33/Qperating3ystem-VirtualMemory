@@ -9,12 +9,21 @@
 #include <asm/pgtable.h>
 #include <asm/pgtable_64.h>
 
+int size = 1, pgd_size = 1, p4d_size = 1, pud_size = 1, pmd_size = 1, pte_size = 1;
 
 SYSCALL_DEFINE1(get_pagetable_layout, struct pagetable_layout_info __user *, pgtbl_info)
 {
+	struct pagetable_layout_info kinfo;
+
+	kinfo.pgdir_shift = PGDIR_SHIFT;
+	kinfo.p4d_shift = P4D_SHIFT;
+	kinfo.pud_shift = PUD_SHIFT;
+	kinfo.pmd_shift = PMD_SHIFT;
+	kinfo.page_shift = PAGE_SHIFT;
+
 	printk(KERN_INFO "PAGE_OFFSET = 0x%lx\n", PAGE_OFFSET);
 	printk(KERN_INFO "PGDIR_SHIFT = %d\n", PGDIR_SHIFT);
-	printk(KERN_INFO "P4D_SHIFT = %d\n", PGDIR_SHIFT);
+	printk(KERN_INFO "P4D_SHIFT = %d\n", P4D_SHIFT);
 	printk(KERN_INFO "PUD_SHIFT = %d\n", PUD_SHIFT);
 	printk(KERN_INFO "PMD_SHIFT = %d\n", PMD_SHIFT);
 	printk(KERN_INFO "PAGE_SHIFT = %d\n", PAGE_SHIFT);
@@ -26,6 +35,10 @@ SYSCALL_DEFINE1(get_pagetable_layout, struct pagetable_layout_info __user *, pgt
 	printk(KERN_INFO "PTRS_PER_PTE = %d\n", PTRS_PER_PTE);
 
 	printk(KERN_INFO "PAGE_MASK = 0x%lx\n", PAGE_MASK);
+
+	if (copy_to_user(pgtbl_info, &kinfo, sizeof(struct pagetable_layout_info)))
+		return -EFAULT;
+
 	return 0;
 }
 
@@ -60,6 +73,7 @@ static int walk_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 		if (err)
 		       break;
 		addr += PAGE_SIZE;
+		pte_size++;
 		if (addr == end)
 			break;
 		pte++;
@@ -112,6 +126,7 @@ again:
 		err = walk_pte_range(pmd, addr, next, walk);
 		if (err)
 			break;
+		pmd_size++;
 	} while (pmd++, addr = next, addr != end);
 
 	return err;
@@ -159,6 +174,7 @@ static int walk_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
 			err = walk_pmd_range(pud, addr, next, walk);
 		if (err)
 			break;
+		pud_size++;
 	} while (pud++, addr = next, addr != end);
 
 	return err;
@@ -168,7 +184,7 @@ static int walk_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
 			  struct my_mm_walk *walk)
 {
 	p4d_t *p4d;
-	unsigned long next;
+	unsigned long next, *base;
 	const struct my_mm_walk_ops *ops = walk->ops;
 	int err = 0;
 
@@ -188,6 +204,7 @@ static int walk_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
 			err = walk_pud_range(p4d, addr, next, walk);
 		if (err)
 			break;
+		p4d_size++;
 	} while (p4d++, addr = next, addr != end);
 
 	return err;
@@ -198,13 +215,30 @@ static int walk_pgd_range(unsigned long addr, unsigned long end,
 			  struct my_mm_walk *walk)
 {
 	pgd_t *pgd;
-	unsigned long next;
+	unsigned long next, *base, to_user;
 	const struct my_mm_walk_ops *ops = walk->ops;
-	int err = 0;
+	struct expose_pgtbl_args *kargs = walk->private;
+	int err = 0, pgd_id = 0, p4d_id = 0;
 
 	pgd = pgd_offset(walk->mm, addr);
+	base = (unsigned long *) kargs->fake_pgd;
+	printk("kargs->fake_p4ds + p4d_id * ADDR_SIZE: %lx \n", kargs->fake_p4ds + p4d_id * ADDR_SIZE);
+	to_user = kargs->fake_p4ds + p4d_id * ADDR_SIZE;
+	up_write(&walk->mm->mmap_sem);
+	if (copy_to_user(base + pgd_id, &to_user, sizeof(unsigned long))) {
+		down_write(&walk->mm->mmap_sem);
+		return -EFAULT;
+	}
+	down_write(&walk->mm->mmap_sem);
+	pgd_id++;
+	p4d_id++;
+
 	do {
 		next = pgd_addr_end(addr, end);
+		//base[pgd_id] = kargs->fake_p4ds + p4d_id * ADDR_SIZE;
+		//pgd_id++;
+		//p4d_id++;
+
 		pr_info("    pgd: %lx, %lx\n", pgd, p4d_offset(pgd, addr));
 		//pr_info("    pgd: %lx, %lx\n", &addr, addr);
 		//if (pgd_none_or_clear_bad(pgd)) {
@@ -214,11 +248,14 @@ static int walk_pgd_range(unsigned long addr, unsigned long end,
 		//		break;
 		//	continue;
 		//}
-		if (ops->pmd_entry || ops->pte_entry)
-			err = walk_p4d_range(pgd, addr, next, walk);
-		if (err)
-			break;
+
+		//if (ops->pmd_entry || ops->pte_entry)
+		//	err = walk_p4d_range(pgd, addr, next, walk);
+		//if (err)
+		//	break;
+		pgd_size++;
 	} while (pgd++, addr = next, addr != end);
+
 
 	return err;
 }
@@ -270,6 +307,7 @@ static int _walk_page_vma(struct vm_area_struct *vma, const struct my_mm_walk_op
 		return 0;
 	if (err < 0)
 		return err;
+
 	return walk_pgd_range(vma->vm_start, vma->vm_end, &walk);
 }
 
@@ -316,6 +354,10 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 		.p4d_entry = vma_walk_p4d,
 		.pgd_entry = vma_walk_pgd,
 	};
+	int size = 0;
+
+	if (copy_from_user(&kargs, args, sizeof(struct expose_pgtbl_args)))
+		return -EFAULT;
 
 	// 1. go through the page table tree and get the size of each layer
 	// 2. mmap()
@@ -334,12 +376,22 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 
 	src_mm = protagonist->mm;
 	for (mpnt = src_mm->mmap; mpnt; mpnt = mpnt->vm_next) {
-		printk(KERN_INFO "vma range: 0x%lx, 0x%lx\n", mpnt->vm_start, mpnt->vm_end);
+		printk(KERN_INFO "vma range: 0x%lx, 0x%lx, %d\n", mpnt->vm_start, mpnt->vm_end, (mpnt->vm_end - mpnt->vm_start) / PAGE_SIZE);
+		size += (mpnt->vm_end - mpnt->vm_start) / PAGE_SIZE;
 		down_write(&src_mm->mmap_sem);
 		_walk_page_vma(mpnt, &ops, &kargs);
 		up_write(&src_mm->mmap_sem);
 	}
 
+	printk("size: %d\n", size);
+	printk("pgd_size: %d\n", pgd_size);
+	printk("p4d_size: %d\n", p4d_size);
+	printk("pud_size: %d\n", pud_size);
+	printk("pmd_size: %d\n", pmd_size);
+	printk("pte_size: %d\n", pte_size);
+
+	if (copy_to_user(args, &kargs, sizeof(struct expose_pgtbl_args)))
+		return -EFAULT;
+
 	return 0;
 }
-

@@ -1,5 +1,14 @@
 #include <linux/expose_pgtbl.h>
 #include <linux/syscalls.h>
+#include <asm/io.h>
+#include <asm/mmu_context.h>
+#include <asm/pgalloc.h>
+#include <linux/uaccess.h>
+#include <asm/tlb.h>
+#include <asm/tlbflush.h>
+#include <asm/pgtable.h>
+#include <asm/pgtable_64.h>
+
 
 SYSCALL_DEFINE1(get_pagetable_layout, struct pagetable_layout_info __user *, pgtbl_info)
 {
@@ -11,6 +20,7 @@ SYSCALL_DEFINE1(get_pagetable_layout, struct pagetable_layout_info __user *, pgt
 	printk(KERN_INFO "PAGE_SHIFT = %d\n", PAGE_SHIFT);
 
 	printk(KERN_INFO "PTRS_PER_PGD = %d\n", PTRS_PER_PGD);
+	printk(KERN_INFO "PTRS_PER_P4D = %d\n", PTRS_PER_P4D);
 	printk(KERN_INFO "PTRS_PER_PUD = %d\n", PTRS_PER_PUD);
 	printk(KERN_INFO "PTRS_PER_PMD = %d\n", PTRS_PER_PMD);
 	printk(KERN_INFO "PTRS_PER_PTE = %d\n", PTRS_PER_PTE);
@@ -39,12 +49,13 @@ static int walk_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 
 	pte = pte_offset_map(pmd, addr);
 	for (;;) {
-		page_addr = pte_val(*pte) & PAGE_MASK;
-		page_offset = addr & ~PAGE_MASK;
-		paddr = page_addr | page_offset;
-		pr_info("                    pte: %lx, %lx", &addr, addr);
-		printk("                    page_addr = %lx, page_offset = %lx\n", page_addr, page_offset);
-		printk("                    vaddr = %lx, paddr = %lx\n", addr, paddr);
+		pr_info("                    pte: %lx, %lx, %lx\n", pte, addr, (((1UL << 46) - 1) & pte->pte) >> 12 << 12);
+		//page_addr = pte_val(*pte) & PAGE_MASK;
+		//page_offset = addr & ~PAGE_MASK;
+		//paddr = page_addr | page_offset;
+		//pr_info("                    pte: %lx, %lx", &addr, addr);
+		//printk("                    page_addr = %lx, page_offset = %lx\n", page_addr, page_offset);
+		//printk("                    vaddr = %lx, paddr = %lx\n", addr, paddr);
 		err = ops->pte_entry(pte, addr, addr + PAGE_SIZE, walk);
 		if (err)
 		       break;
@@ -53,7 +64,7 @@ static int walk_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 			break;
 		pte++;
 	}
-
+// try xxx_val() ??
 	pte_unmap(pte);
 	return err;
 }
@@ -70,7 +81,8 @@ static int walk_pmd_range(pud_t *pud, unsigned long addr, unsigned long end,
 	do {
 again:
 		next = pmd_addr_end(addr, end);
-		pr_info("                pmd: %lx, %lx", &addr, addr);
+		pr_info("                pmd: %lx, %lx", pmd, pte_offset_map(pmd, addr));
+		//pr_info("                pmd: %lx, %lx", &addr, addr);
 		//if (pmd_none(*pmd) || !walk->vma) {
 		//	if (ops->pte_hole)
 		//		err = ops->pte_hole(addr, next, walk);
@@ -117,7 +129,8 @@ static int walk_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
 	do {
  again:
 		next = pud_addr_end(addr, end);
-		pr_info("            pud: %lx, %lx", &addr, addr);
+		pr_info("            pud: %lx, %lx", pud, pmd_offset(pud, addr));
+		//pr_info("            pud: %lx, %lx", &addr, addr);
 		//if (pud_none(*pud) || !walk->vma) {
 		//	if (ops->pte_hole)
 		//		err = ops->pte_hole(addr, next, walk);
@@ -162,7 +175,8 @@ static int walk_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
 	p4d = p4d_offset(pgd, addr);
 	do {
 		next = p4d_addr_end(addr, end);
-		pr_info("        p4d: %lx, %lx", &addr, addr);
+		pr_info("        p4d: %lx, %lx\n", p4d, pud_offset(p4d, addr));
+		//pr_info("        p4d: %lx, %lx", &addr, addr);
 		//if (p4d_none_or_clear_bad(p4d)) {
 		//	if (ops->pte_hole)
 		//		err = ops->pte_hole(addr, next, walk);
@@ -191,7 +205,8 @@ static int walk_pgd_range(unsigned long addr, unsigned long end,
 	pgd = pgd_offset(walk->mm, addr);
 	do {
 		next = pgd_addr_end(addr, end);
-		pr_info("    pgd: %lx, %lx\n", &addr, addr);
+		pr_info("    pgd: %lx, %lx\n", pgd, p4d_offset(pgd, addr));
+		//pr_info("    pgd: %lx, %lx\n", &addr, addr);
 		//if (pgd_none_or_clear_bad(pgd)) {
 		//	if (ops->pte_hole)
 		//		err = ops->pte_hole(addr, next, walk);
@@ -302,6 +317,9 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 		.pgd_entry = vma_walk_pgd,
 	};
 
+	// 1. go through the page table tree and get the size of each layer
+	// 2. mmap()
+	// 3. build the fake layers.
 	read_lock(&tasklist_lock);
 	if (pid == -1)
 		protagonist = current;

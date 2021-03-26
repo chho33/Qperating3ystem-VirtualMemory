@@ -87,11 +87,11 @@ int main(int argc, char *argv[])
 	args.end_vaddr = 0x556713b7e000; // 4608 pages;
 	//addr_len = (args.end_vaddr - args.begin_vaddr); // maximum bytes we need;
 	//ptes_size = addr_len / PAGE_SIZE;
-	pgd_size = 16 * ADDR_SIZE;
-	p4d_size = 16 * ADDR_SIZE;
-	pud_size = 16 * ADDR_SIZE;
-	pmd_size = 18 * ADDR_SIZE;
-	pte_size = 1095 * ADDR_SIZE;
+	pgd_size = 25 * ADDR_SIZE;
+	p4d_size = 25 * ADDR_SIZE;
+	pud_size = 25 * ADDR_SIZE;
+	pmd_size = 25 * ADDR_SIZE;
+	pte_size = 1200 * ADDR_SIZE;
 
 	//fake_pgd = mmap(NULL, pgd_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	////fake_pgd = mmap((void *) args.begin_vaddr, pgd_size + p4d_size + pud_size + pmd_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);

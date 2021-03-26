@@ -5,6 +5,11 @@
 #include <linux/pagewalk.h>
 
 #define ADDR_SIZE sizeof(unsigned long)
+#define RUN_PGD 0
+#define RUN_P4D 1
+#define RUN_PUD 2
+#define RUN_PMD 3
+#define RUN_PTE 4
 
 struct pagetable_layout_info {
 	uint32_t pgdir_shift;
@@ -27,16 +32,11 @@ struct expose_pgtbl_args {
 struct my_mm_walk;
 
 struct my_mm_walk_ops {
-	int (*pgd_entry)(pgd_t *pgd, unsigned long addr,
-			 unsigned long next, struct my_mm_walk *walk);
-	int (*p4d_entry)(p4d_t *p4d, unsigned long addr,
-			 unsigned long next, struct my_mm_walk *walk);
-	int (*pmd_entry)(pmd_t *pmd, unsigned long addr,
-			 unsigned long next, struct my_mm_walk *walk);
-	int (*pud_entry)(pud_t *pud, unsigned long addr,
-			 unsigned long next, struct my_mm_walk *walk);
-	int (*pte_entry)(pte_t *pte, unsigned long addr,
-			 unsigned long next, struct my_mm_walk *walk);
+	int (*pgd_entry)(struct my_mm_walk *walk);
+	int (*p4d_entry)(struct my_mm_walk *walk);
+	int (*pud_entry)(struct my_mm_walk *walk);
+	int (*pmd_entry)(struct my_mm_walk *walk);
+	int (*pte_entry)(struct my_mm_walk *walk);
 };
 
 struct my_mm_walk {
@@ -44,6 +44,17 @@ struct my_mm_walk {
 	struct mm_struct *mm;
 	struct vm_area_struct *vma;
 	void *private;
+};
+
+struct map_linked_list {
+	unsigned long *store;
+	unsigned long goods;
+	struct map_linked_list *next;
+};
+
+struct to_do {
+	struct expose_pgtbl_args kargs;
+	struct map_linked_list *map_list;
 };
 
 #endif /* _EXPOSE_PGTBL_H_ */

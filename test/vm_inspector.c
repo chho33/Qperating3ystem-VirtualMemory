@@ -115,12 +115,12 @@ int main(int argc, char *argv[])
 	args.fake_pmds = (unsigned long) fake_pmds;
 	args.page_table_addr = (unsigned long) page_table_addr;
 
-	printf("%lx \n", args.fake_pgd);
-	printf("%lx \n", args.fake_pgd + pgd_size);
-	printf("%lx \n", args.fake_p4ds);
-	printf("%lx \n", args.fake_puds);
-	printf("%lx \n", args.fake_pmds);
-	printf("%lx \n", args.page_table_addr);
+	printf("fake_pgd: %lx \n", args.fake_pgd);
+	printf("fake_pgd + pgd_size: %lx \n", args.fake_pgd + pgd_size);
+	printf("fake_p4ds: %lx \n", args.fake_p4ds);
+	printf("fake_puds: %lx \n", args.fake_puds);
+	printf("fake_pmds: %lx \n", args.fake_pmds);
+	printf("page_table_addr: %lx \n", args.page_table_addr);
 
 	expose_page_table_syscall(-1, &args);
 
@@ -136,12 +136,12 @@ int main(int argc, char *argv[])
 	//test[2] = 0xdeaddeaddead;
 
 	printf("\n");
-	printf("%lx\n", test[0]);
-	printf("%lx\n", fake_p4ds);
+	printf("fake_p4ds[0]: %lx\n", fake_p4ds);
+	printf("fake_pgd[0]: %lx\n", test[0]);
 	printf("\n");
-	printf("%lx\n", test[1]);
-	printf("%lx\n", test[2]);
-	printf("%lx\n", test[3]);
+	printf("fake_pgd[1]: %lx\n", test[1]);
+	printf("fake_pgd[2]: %lx\n", test[2]);
+	printf("fake_pgd[3]: %lx\n", test[3]);
 
 	munmap(fake_pgd, pgd_size);
 	munmap(fake_p4ds, p4d_size);

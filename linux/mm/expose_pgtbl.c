@@ -358,8 +358,6 @@ static int vma_walk(struct my_mm_walk *walk, int run_tag)
 			break;
 	}
 
-	if (to_do->map_list->store == store)
-		return 0;
 	to_do->map_list->next = kmalloc(sizeof(struct map_linked_list), GFP_KERNEL);
 	if(!to_do->map_list->next)
 		return -ENOMEM;
@@ -431,6 +429,12 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	struct map_linked_list map_list, *head, *dummy;
 	int size = 0;
 
+	pgd_size = 0;
+	p4d_size = 0;
+	pud_size = 0;
+	pmd_size = 0;
+	pte_size = 0;
+
 	if (copy_from_user(&kargs, args, sizeof(struct expose_pgtbl_args)))
 		return -EFAULT;
 
@@ -483,11 +487,6 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	printk("pud_size: %d\n", pud_size);
 	printk("pmd_size: %d\n", pmd_size);
 	printk("pte_size: %d\n", pte_size);
-	pgd_size = 0;
-	p4d_size = 0;
-	pud_size = 0;
-	pmd_size = 0;
-	pte_size = 0;
 
 	if (copy_to_user(args, &kargs, sizeof(struct expose_pgtbl_args)))
 		return -EFAULT;

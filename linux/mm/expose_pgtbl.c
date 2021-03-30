@@ -73,7 +73,7 @@ static int walk_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 		//pr_info("                    pte: %lx, %lx", &addr, addr);
 		//printk("                    page_addr = %lx, page_offset = %lx\n", page_addr, page_offset);
 		//printk("                    vaddr = %lx, paddr = %lx\n", addr, paddr);
-		err = ops->pte_entry(walk);
+		err = ops->pte_entry(walk, addr);
 		if (err)
 		       break;
 		addr += PAGE_SIZE;
@@ -124,7 +124,7 @@ again:
 			continue;
 
 		if (ops->pmd_entry)
-			err = ops->pmd_entry(walk);
+			err = ops->pmd_entry(walk, addr);
 		if (err)
 			break;
 
@@ -177,7 +177,7 @@ static int walk_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
 		//	}
 		//}
 
-		err = ops->pud_entry(walk);
+		err = ops->pud_entry(walk, addr);
 		if(err)
 			break;
 
@@ -220,7 +220,7 @@ static int walk_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
 		//	continue;
 		//}
 		
-		err = ops->p4d_entry(walk);
+		err = ops->p4d_entry(walk, addr);
 		if (err)
 			break;
 		if (ops->pmd_entry || ops->pte_entry)
@@ -265,7 +265,7 @@ static int walk_pgd_range(unsigned long addr, unsigned long end,
 		//	continue;
 		//}
 
-		err = ops->pgd_entry(walk);
+		err = ops->pgd_entry(walk, addr);
 		if (err)
 			break;
 
@@ -306,9 +306,12 @@ static int walk_page_test(unsigned long start, unsigned long end,
 	return 0;
 }
 
-static int _walk_page_vma(struct vm_area_struct *vma, const struct my_mm_walk_ops *ops,
-			void *private)
+static int _walk_page_vma(struct vm_area_struct *vma,
+		const struct my_mm_walk_ops *ops, struct to_do *private)
 {
+	unsigned long addr;
+	unsigned long end;
+
 	struct my_mm_walk walk = {
 		.ops		= ops,
 		.mm		= vma->vm_mm,
@@ -317,42 +320,71 @@ static int _walk_page_vma(struct vm_area_struct *vma, const struct my_mm_walk_op
 	};
 	int err;
 
+	//return walk_pgd_range(vma->vm_start, vma->vm_end, &walk);
+
+	if (vma->vm_start >= private->kargs.end_vaddr ||
+		vma->vm_end <= private->kargs.begin_vaddr)
+		return 0;
+
+	addr = vma->vm_start > private->kargs.begin_vaddr ?
+		vma->vm_start : private->kargs.begin_vaddr;
+
+	end = vma->vm_end < private->kargs.end_vaddr ?
+		vma->vm_end : private->kargs.end_vaddr;
+
 	if (!walk.mm)
 		return -EINVAL;
 
 	lockdep_assert_held(&walk.mm->mmap_sem);
 
-	err = walk_page_test(vma->vm_start, vma->vm_end, &walk);
+	err = walk_page_test(addr, end, &walk);
 	if (err > 0)
 		return 0;
 	if (err < 0)
 		return err;
 
-	return walk_pgd_range(vma->vm_start, vma->vm_end, &walk);
+	return walk_pgd_range(addr, end, &walk);
 }
 
-static int vma_walk(struct my_mm_walk *walk, int run_tag)
+static int vma_walk(struct my_mm_walk *walk, int run_tag, unsigned long addr)
 {
 	struct to_do *to_do = walk->private;
 	unsigned long *store;
 	unsigned long goods;
 
+	//TODO if the upper level entry is already built,
+	//     don't add a new entry but just return.
+	
+
 	switch(run_tag) {
 		case RUN_PGD:
-			store = to_do->kargs.fake_pgd;
-			goods = to_do->kargs.fake_p4ds;
+			if (PGDIR_SHIFT == P4D_SHIFT)
+				return 0;
+			store = to_do->kargs.fake_pgd +
+				pgd_index(addr) * ADDR_SIZE;
+			goods = to_do->ptrs.fake_p4ds -
+				p4d_index(addr) * ADDR_SIZE;
 			break;
 		case RUN_P4D:
-			store = to_do->kargs.fake_p4ds;
-			goods = to_do->kargs.fake_puds;
+			if (PGDIR_SHIFT == P4D_SHIFT){
+				store = to_do->kargs.fake_pgd +
+					pgd_index(addr) * ADDR_SIZE;
+			} else {
+				store = to_do->ptrs.fake_p4ds;
+			}
+			goods = to_do->ptrs.fake_puds -
+				pud_index(addr) * ADDR_SIZE;
 			break;
 		case RUN_PUD:
-			store = to_do->kargs.fake_puds;
-			goods = to_do->kargs.fake_pmds;
+			store = to_do->ptrs.fake_puds;
+			goods = to_do->ptrs.fake_pmds -
+				pmd_index(addr) * ADDR_SIZE;
 			break;
 		case RUN_PMD:
-			store = to_do->kargs.fake_pmds;
-			goods = to_do->kargs.page_table_addr;
+			store = to_do->ptrs.fake_pmds;
+			//TODO should be someting like pte_offset_map(pmd, addr)
+			goods = to_do->ptrs.page_table_addr -
+				pte_index(addr) * ADDR_SIZE;
 			break;
 		default:
 			break;
@@ -365,51 +397,54 @@ static int vma_walk(struct my_mm_walk *walk, int run_tag)
 	to_do->map_list = to_do->map_list->next;
 	to_do->map_list->store = (unsigned long *) store;
 	to_do->map_list->goods = goods;
-
+	//pr_info("store: %lx, goods: %lx\n", store, goods);
 	switch(run_tag) {
 		case RUN_PGD:
-			to_do->kargs.fake_pgd += ADDR_SIZE;
+			to_do->ptrs.fake_pgd += ADDR_SIZE;
 			break;
 		case RUN_P4D:
-			to_do->kargs.fake_p4ds += ADDR_SIZE;
+			if (PGDIR_SHIFT == P4D_SHIFT) {
+				to_do->ptrs.fake_pgd += ADDR_SIZE;
+				break;
+			}
+			to_do->ptrs.fake_p4ds += ADDR_SIZE;
 			break;
 		case RUN_PUD:
-			to_do->kargs.fake_puds += ADDR_SIZE;
+			to_do->ptrs.fake_puds += ADDR_SIZE;
 			break;
 		case RUN_PMD:
-			to_do->kargs.fake_pmds += ADDR_SIZE;
+			to_do->ptrs.fake_pmds += ADDR_SIZE;
 			break;
 		default:
 			break;
 	}
-
 	return 0;
 }
 
-static inline int vma_walk_pgd(struct my_mm_walk *walk)
+static inline int vma_walk_pgd(struct my_mm_walk *walk, unsigned long addr)
 {
-	return vma_walk(walk, RUN_PGD);
+	return vma_walk(walk, RUN_PGD, addr);
 }
 
-static inline int vma_walk_p4d(struct my_mm_walk *walk)
+static inline int vma_walk_p4d(struct my_mm_walk *walk, unsigned long addr)
 {
-	return vma_walk(walk, RUN_P4D);
+	return vma_walk(walk, RUN_P4D, addr);
 }
 
-static inline int vma_walk_pud(struct my_mm_walk *walk)
+static inline int vma_walk_pud(struct my_mm_walk *walk, unsigned long addr)
 {
-	return vma_walk(walk, RUN_PUD);
+	return vma_walk(walk, RUN_PUD, addr);
 }
 
-static inline int vma_walk_pmd(struct my_mm_walk *walk)
+static inline int vma_walk_pmd(struct my_mm_walk *walk, unsigned long addr)
 {
-	return vma_walk(walk, RUN_PMD);
+	return vma_walk(walk, RUN_PMD, addr);
 }
 
-static inline int vma_walk_pte(struct my_mm_walk *walk)
+static inline int vma_walk_pte(struct my_mm_walk *walk, unsigned long addr)
 {
 	return 0;
-	return vma_walk(walk, RUN_PTE);
+	return vma_walk(walk, RUN_PTE, addr);
 }
 
 SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *, args)
@@ -439,6 +474,7 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 		return -EFAULT;
 
 	node.kargs = kargs;
+	node.ptrs = kargs;
 	node.map_list = &map_list;
 	dummy = &map_list;
 	head = &map_list;
@@ -470,13 +506,13 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	up_write(&src_mm->mmap_sem);
 
 	head = head->next;
-	while(head) {
-		printk("copy %lx to %lx\n", head->goods, head->store);
-		if (copy_to_user(head->store, &head->goods, sizeof(unsigned long))) {
-			return -EFAULT;
-		}
-		head = head->next;
-	}
+	//while(head) {
+	//	printk("copy %lx to %lx\n", head->goods, head->store);
+	//	if (copy_to_user(head->store, &head->goods, sizeof(unsigned long))) {
+	//		return -EFAULT;
+	//	}
+	//	head = head->next;
+	//}
 	pr_info("kfree-ing...\n");
 	kfree(dummy->next);
 	pr_info("==================\n");

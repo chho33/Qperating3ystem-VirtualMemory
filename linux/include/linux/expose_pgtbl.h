@@ -32,19 +32,13 @@ struct expose_pgtbl_args {
 struct my_mm_walk;
 
 struct my_mm_walk_ops {
-	int (*pgd_entry)(struct my_mm_walk *walk);
-	int (*p4d_entry)(struct my_mm_walk *walk);
-	int (*pud_entry)(struct my_mm_walk *walk);
-	int (*pmd_entry)(struct my_mm_walk *walk);
-	int (*pte_entry)(struct my_mm_walk *walk);
+	int (*pgd_entry)(struct my_mm_walk *walk, unsigned long addr);
+	int (*p4d_entry)(struct my_mm_walk *walk, unsigned long addr);
+	int (*pud_entry)(struct my_mm_walk *walk, unsigned long addr);
+	int (*pmd_entry)(struct my_mm_walk *walk, unsigned long addr);
+	int (*pte_entry)(struct my_mm_walk *walk, unsigned long addr);
 };
 
-struct my_mm_walk {
-	const struct my_mm_walk_ops *ops;
-	struct mm_struct *mm;
-	struct vm_area_struct *vma;
-	void *private;
-};
 
 struct map_linked_list {
 	unsigned long *store;
@@ -52,9 +46,23 @@ struct map_linked_list {
 	struct map_linked_list *next;
 };
 
+struct remap_linked_list {
+	unsigned long kaddr;
+	unsigned long uaddr;
+};
+
 struct to_do {
 	struct expose_pgtbl_args kargs;
+	struct expose_pgtbl_args ptrs;
 	struct map_linked_list *map_list;
+	struct remap_linked_list *remap_list;
+};
+
+struct my_mm_walk {
+	const struct my_mm_walk_ops *ops;
+	struct mm_struct *mm;
+	struct vm_area_struct *vma;
+	struct to_do *private;
 };
 
 #endif /* _EXPOSE_PGTBL_H_ */

@@ -36,7 +36,7 @@ struct my_mm_walk_ops {
 	int (*p4d_entry)(struct my_mm_walk *walk, unsigned long addr, bool do_copy);
 	int (*pud_entry)(struct my_mm_walk *walk, unsigned long addr, bool do_copy);
 	int (*pmd_entry)(struct my_mm_walk *walk, unsigned long addr, bool do_copy);
-	int (*pte_entry)(struct my_mm_walk *walk, unsigned long addr, bool do_copy);
+	int (*pte_entry)(struct my_mm_walk *walk, unsigned long addr, bool do_copy, pte_t *pte);
 };
 
 
@@ -49,6 +49,7 @@ struct map_linked_list {
 struct remap_linked_list {
 	unsigned long kaddr;
 	unsigned long uaddr;
+	struct remap_linked_list *next;
 };
 
 struct to_do {

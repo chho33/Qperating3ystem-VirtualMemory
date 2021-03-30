@@ -14,6 +14,7 @@ pgd_t *pgd_check;
 p4d_t *p4d_check;
 pud_t *pud_check;
 pmd_t *pmd_check;
+pte_t *pte_check;
 
 SYSCALL_DEFINE1(get_pagetable_layout, struct pagetable_layout_info __user *, pgtbl_info)
 {
@@ -63,6 +64,7 @@ static int walk_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 	unsigned long paddr = 0;
 	unsigned long page_addr = 0;
 	unsigned long page_offset = 0;
+	bool do_copy = true;
 
 	pte = pte_offset_map(pmd, addr);
 	//err = ops->pte_entry(walk);
@@ -77,9 +79,16 @@ static int walk_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 		//pr_info("                    pte: %lx, %lx", &addr, addr);
 		//printk("                    page_addr = %lx, page_offset = %lx\n", page_addr, page_offset);
 		//printk("                    vaddr = %lx, paddr = %lx\n", addr, paddr);
-		err = ops->pte_entry(walk, addr, pte);
-		if (err)
-		       break;
+
+		if (pte == pte_check)
+			do_copy = false;
+		else
+			pte_check = pte;
+		err = ops->pte_entry(walk, addr, do_copy, pte);
+		do_copy = true;
+		if(err)
+			break;
+
 		addr += PAGE_SIZE;
 		pte_size++;
 		if (addr == end)
@@ -349,7 +358,7 @@ static int _walk_page_vma(struct vm_area_struct *vma,
 	};
 	int err;
 
-	return walk_pgd_range(vma->vm_start, vma->vm_end, &walk);
+	//return walk_pgd_range(vma->vm_start, vma->vm_end, &walk);
 
 	if (vma->vm_start >= private->kargs.end_vaddr ||
 		vma->vm_end <= private->kargs.begin_vaddr)
@@ -375,7 +384,7 @@ static int _walk_page_vma(struct vm_area_struct *vma,
 	return walk_pgd_range(addr, end, &walk);
 }
 
-static int vma_walk(struct my_mm_walk *walk, int run_tag, unsigned long addr, bool do_copy)
+static int vma_walk(struct my_mm_walk *walk, int run_tag, unsigned long addr, bool do_copy, pte_t *pte)
 {
 	struct to_do *to_do = walk->private;
 	unsigned long *store;
@@ -423,6 +432,17 @@ static int vma_walk(struct my_mm_walk *walk, int run_tag, unsigned long addr, bo
 			goods = to_do->ptrs.page_table_addr -
 				pte_index(addr) * ADDR_SIZE;
 			pr_info("                store: %lx; goods: %lx; page_table_addr: %lx", store, goods, to_do->ptrs.page_table_addr);
+
+			break;
+		case RUN_PTE:
+			if (!do_copy)
+				return 0;
+			to_do->remap_list->next = kmalloc(sizeof(struct map_linked_list), GFP_KERNEL);
+			to_do->remap_list = to_do->remap_list->next;
+			to_do->remap_list->kaddr = (((1UL << 52) - 1) & pte->pte) >> 12 << 12;
+			to_do->remap_list->uaddr = to_do->ptrs.page_table_addr;
+			pr_info("                    uaddr: %lx; kaddr: %lx;", to_do->remap_list->uaddr, to_do->remap_list->kaddr);
+			goto go_next;
 			break;
 		default:
 			break;
@@ -436,6 +456,8 @@ static int vma_walk(struct my_mm_walk *walk, int run_tag, unsigned long addr, bo
 	to_do->map_list->store = (unsigned long *) store;
 	to_do->map_list->goods = goods;
 	//pr_info("store: %lx, goods: %lx\n", store, goods);
+
+go_next:
 	switch(run_tag) {
 		case RUN_PGD:
 			to_do->ptrs.fake_pgd += ADDR_SIZE;
@@ -464,34 +486,34 @@ static int vma_walk(struct my_mm_walk *walk, int run_tag, unsigned long addr, bo
 
 static inline int vma_walk_pgd(struct my_mm_walk *walk, unsigned long addr, bool do_copy)
 {
-	return vma_walk(walk, RUN_PGD, addr, do_copy);
+	return vma_walk(walk, RUN_PGD, addr, do_copy, NULL);
 }
 
 static inline int vma_walk_p4d(struct my_mm_walk *walk, unsigned long addr, bool do_copy)
 {
-	return vma_walk(walk, RUN_P4D, addr, do_copy);
+	return vma_walk(walk, RUN_P4D, addr, do_copy, NULL);
 }
 
 static inline int vma_walk_pud(struct my_mm_walk *walk, unsigned long addr, bool do_copy)
 {
-	return vma_walk(walk, RUN_PUD, addr, do_copy);
+	return vma_walk(walk, RUN_PUD, addr, do_copy, NULL);
 }
 
 static inline int vma_walk_pmd(struct my_mm_walk *walk, unsigned long addr, bool do_copy)
 {
-	return vma_walk(walk, RUN_PMD, addr, do_copy);
+	return vma_walk(walk, RUN_PMD, addr, do_copy, NULL);
 }
 
-static inline int vma_walk_pte(struct my_mm_walk *walk, unsigned long addr, bool do_copy)
+static inline int vma_walk_pte(struct my_mm_walk *walk, unsigned long addr, bool do_copy, pte_t *pte)
 {
-	return vma_walk(walk, RUN_PTE, addr, do_copy);
+	return vma_walk(walk, RUN_PTE, addr, do_copy, pte);
 }
 
 SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *, args)
 {
 	struct task_struct *protagonist;
 	struct mm_struct *src_mm;
-	struct vm_area_struct *mpnt;
+	struct vm_area_struct *mpnt, *vma_pte;
 	struct expose_pgtbl_args kargs;
 	static const struct my_mm_walk_ops ops = {
 		.pgd_entry = vma_walk_pgd,
@@ -502,6 +524,7 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	};
 	struct to_do node;
 	struct map_linked_list map_list, *head, *dummy;
+	struct remap_linked_list remap_list, *remap_head, *remap_dummy;
 	int size = 0;
 
 	pgd_size = 0;
@@ -513,6 +536,7 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	p4d_check = NULL;
 	pud_check = NULL;
 	pmd_check = NULL;
+	pte_check = NULL;
 
 	if (copy_from_user(&kargs, args, sizeof(struct expose_pgtbl_args)))
 		return -EFAULT;
@@ -522,6 +546,9 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	node.map_list = &map_list;
 	dummy = &map_list;
 	head = &map_list;
+	node.remap_list = &remap_list;
+	remap_dummy = &remap_list;
+	remap_head = &remap_list;
 
 	// 1. go through the page table tree and get the size of each layer
 	// 2. mmap()
@@ -549,7 +576,7 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	}
 	up_write(&src_mm->mmap_sem);
 
-	head = head->next;
+	//head = head->next;
 	//while(head) {
 	//	printk("copy %lx to %lx\n", head->goods, head->store);
 	//	if (copy_to_user(head->store, &head->goods, sizeof(unsigned long))) {
@@ -557,8 +584,22 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	//	}
 	//	head = head->next;
 	//}
+
+	vma_pte = find_vma(src_mm, kargs.page_table_addr);
+	remap_head = remap_head->next;
+	while(remap_head) {
+		printk("remap %lx to %lx\n", remap_head->kaddr, remap_head->uaddr);
+		//if (remap_pfn_range(vma_pte, remap_head->uaddr, remap_head->kaddr, sizeof(unsigned long), vma_pte->vm_page_prot)) {
+		//	return -EFAULT;
+		//}
+		remap_head = remap_head->next;
+	}
+
 	pr_info("kfree-ing...\n");
-	kfree(dummy->next);
+	if(dummy->next)
+		kfree(dummy->next);
+	if(remap_dummy->next)
+		kfree(remap_dummy->next);
 	pr_info("==================\n");
 
 	printk("size: %d\n", size);

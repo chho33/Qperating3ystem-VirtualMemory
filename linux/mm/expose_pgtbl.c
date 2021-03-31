@@ -72,7 +72,7 @@ static int walk_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 	//	return err;
 
 	for (;;) {
-		pr_info("                    pte: %lx, %lx, %lx, %lx\n", pte, __pa(pte), addr, (((1UL << 52) - 1) & pte->pte) >> 12 << 12);
+		pr_info("                    pte: %lx, %lx, %lx, %lx\n", pte, __pa(pte), addr, (((1UL << 52) - 1) & pte->pte));
 		//page_addr = pte_val(*pte) & PAGE_MASK;
 		//page_offset = addr & ~PAGE_MASK;
 		//paddr = page_addr | page_offset;
@@ -116,7 +116,7 @@ static int walk_pmd_range(pud_t *pud, unsigned long addr, unsigned long end,
 	do {
 again:
 		next = pmd_addr_end(addr, end);
-		pr_info("                pmd: %lx, %lx", pmd, pte_offset_map(pmd, addr));
+		pr_info("                pmd: %lx, %lx %lx, %lx, %lx\n", pmd, pte_offset_map(pmd, addr), (pte_t *)pmd_page_vaddr(*pmd), pte_index(addr), native_pmd_val(*pmd));
 		//pr_info("                pmd: %lx, %lx", &addr, addr);
 		//if (pmd_none(*pmd) || !walk->vma) {
 		//	if (ops->pte_hole)
@@ -176,7 +176,7 @@ static int walk_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
 	do {
  again:
 		next = pud_addr_end(addr, end);
-		pr_info("            pud: %lx, %lx", pud, pmd_offset(pud, addr));
+		pr_info("            pud: %lx, %lx, %lx, %lx, %lx\n", pud, pmd_offset(pud, addr), (pmd_t *)pud_page_vaddr(*pud), pmd_index(addr), native_pud_val(*pud));
 		//pr_info("            pud: %lx, %lx", &addr, addr);
 		//if (pud_none(*pud) || !walk->vma) {
 		//	if (ops->pte_hole)
@@ -237,7 +237,7 @@ static int walk_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
 
 	do {
 		next = p4d_addr_end(addr, end);
-		pr_info("        p4d: %lx, %lx\n", p4d, pud_offset(p4d, addr));
+		pr_info("        p4d: %lx, %lx, %lx, %lx, %lx, %lx\n", p4d, pud_offset(p4d, addr), (pud_t *)p4d_page_vaddr(*p4d), pud_index(addr), (pud_t *)p4d_page_vaddr(*p4d)+pud_index(addr), native_p4d_val(*p4d));
 		//pr_info("        p4d: %lx, %lx", &addr, addr);
 		//if (p4d_none_or_clear_bad(p4d)) {
 		//	if (ops->pte_hole)
@@ -439,17 +439,6 @@ static int vma_walk(struct my_mm_walk *walk, int run_tag, unsigned long addr, bo
 			to_do->remap_list->next = NULL;
 
 			break;
-		case RUN_PTE:
-			if (!do_copy)
-				return 0;
-			to_do->remap_list->next = kmalloc(sizeof(struct map_linked_list), GFP_KERNEL);
-			to_do->remap_list = to_do->remap_list->next;
-			to_do->remap_list->kaddr = (((1UL << 52) - 1) & pte->pte) >> 12 << 12;
-			to_do->remap_list->uaddr = to_do->ptrs.page_table_addr;
-			to_do->remap_list->next = NULL;
-			pr_info("                    uaddr: %lx; kaddr: %lx;", to_do->remap_list->uaddr, to_do->remap_list->kaddr);
-			goto go_next;
-			break;
 		default:
 			break;
 	}
@@ -515,6 +504,146 @@ static inline int vma_walk_pmd(struct my_mm_walk *walk, unsigned long addr, bool
 static inline int vma_walk_pte(struct my_mm_walk *walk, unsigned long addr, bool do_copy, pte_t *pte)
 {
 	return vma_walk(walk, RUN_PTE, addr, do_copy, pte);
+}
+
+static inline bool is_cow_mapping(vm_flags_t flags)
+{
+	return (flags & (VM_SHARED | VM_MAYWRITE)) == VM_MAYWRITE;
+}
+
+static int remap_pte_range(struct mm_struct *mm, pmd_t *pmd,
+			unsigned long addr, unsigned long end,
+			unsigned long pfn, pgprot_t prot)
+{
+	pte_t *pte;
+	spinlock_t *ptl;
+	int err = 0;
+
+	pte = pte_alloc_map_lock(mm, pmd, addr, &ptl);
+	if (!pte)
+		return -ENOMEM;
+	arch_enter_lazy_mmu_mode();
+	do {
+		BUG_ON(!pte_none(*pte));
+		if (!pfn_modify_allowed(pfn, prot)) {
+			err = -EACCES;
+			break;
+		}
+		set_pte_at(mm, addr, pte, pte_mkspecial(pfn_pte(pfn, prot)));
+		pfn++;
+	} while (pte++, addr += PAGE_SIZE, addr != end);
+	arch_leave_lazy_mmu_mode();
+	pte_unmap_unlock(pte - 1, ptl);
+	return err;
+}
+
+static inline int remap_pmd_range(struct mm_struct *mm, pud_t *pud,
+			unsigned long addr, unsigned long end,
+			unsigned long pfn, pgprot_t prot)
+{
+	pmd_t *pmd;
+	unsigned long next;
+	int err;
+
+	pfn -= addr >> PAGE_SHIFT;
+	pmd = pmd_alloc(mm, pud, addr);
+	if (!pmd)
+		return -ENOMEM;
+	VM_BUG_ON(pmd_trans_huge(*pmd));
+	do {
+		next = pmd_addr_end(addr, end);
+		err = remap_pte_range(mm, pmd, addr, next,
+				pfn + (addr >> PAGE_SHIFT), prot);
+		if (err)
+			return err;
+	} while (pmd++, addr = next, addr != end);
+	return 0;
+}
+
+static inline int remap_pud_range(struct mm_struct *mm, p4d_t *p4d,
+			unsigned long addr, unsigned long end,
+			unsigned long pfn, pgprot_t prot)
+{
+	pud_t *pud;
+	unsigned long next;
+	int err;
+
+	pfn -= addr >> PAGE_SHIFT;
+	pud = pud_alloc(mm, p4d, addr);
+	if (!pud)
+		return -ENOMEM;
+	do {
+		next = pud_addr_end(addr, end);
+		err = remap_pmd_range(mm, pud, addr, next,
+				pfn + (addr >> PAGE_SHIFT), prot);
+		if (err)
+			return err;
+	} while (pud++, addr = next, addr != end);
+	return 0;
+}
+
+static inline int remap_p4d_range(struct mm_struct *mm, pgd_t *pgd,
+			unsigned long addr, unsigned long end,
+			unsigned long pfn, pgprot_t prot)
+{
+	p4d_t *p4d;
+	unsigned long next;
+	int err;
+
+	pfn -= addr >> PAGE_SHIFT;
+	p4d = p4d_alloc(mm, pgd, addr);
+	if (!p4d)
+		return -ENOMEM;
+	do {
+		next = p4d_addr_end(addr, end);
+		err = remap_pud_range(mm, p4d, addr, next,
+				pfn + (addr >> PAGE_SHIFT), prot);
+		if (err)
+			return err;
+	} while (p4d++, addr = next, addr != end);
+	return 0;
+}
+
+int test_remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
+		    unsigned long pfn, unsigned long size, pgprot_t prot)
+{
+	pgd_t *pgd;
+	unsigned long next;
+	unsigned long end = addr + PAGE_ALIGN(size);
+	struct mm_struct *mm = vma->vm_mm;
+	unsigned long remap_pfn = pfn;
+	int err;
+
+	if (is_cow_mapping(vma->vm_flags)) {
+		if (addr != vma->vm_start || end != vma->vm_end)
+			return -EINVAL;
+		vma->vm_pgoff = pfn;
+	}
+
+	err = track_pfn_remap(vma, &prot, remap_pfn, addr, PAGE_ALIGN(size));
+	if (err)
+		return -EINVAL;
+
+	//vma->vm_flags |= VM_READ | VM_SHARED;
+	//vma->vm_flags |= VM_IO | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP; 
+	vma->vm_flags |= VM_READ | VM_SHARED | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP; 
+
+	BUG_ON(addr >= end);
+	pfn -= addr >> PAGE_SHIFT;
+	pgd = pgd_offset(mm, addr);
+	flush_cache_range(vma, addr, end);
+	do {
+		next = pgd_addr_end(addr, end);
+		err = remap_p4d_range(mm, pgd, addr, next,
+				pfn + (addr >> PAGE_SHIFT), prot);
+		if (err)
+			break;
+	} while (pgd++, addr = next, addr != end);
+
+	if (err)
+		untrack_pfn(vma, remap_pfn, PAGE_ALIGN(size));
+
+	return err;
 }
 
 SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *, args)
@@ -598,15 +727,14 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	vma_pte = find_vma(src_mm, kargs.page_table_addr);
 	remap_head = remap_head->next;
 	while(remap_head) {
-		printk("remap %lx to %lx\n", remap_head->kaddr, remap_head->uaddr);
+		//printk("remap %lx to %lx\n", remap_head->kaddr, remap_head->uaddr);
 		pfn = __pa(remap_head->kaddr) >> PAGE_SHIFT;
-		if (remap_pfn_range(vma_pte, remap_head->uaddr, pfn, PAGE_SIZE, vma_pte->vm_page_prot))
+		printk("remap %lx (pfn: %lx) to %lx\n", remap_head->kaddr, pfn, remap_head->uaddr);
+		//if (remap_pfn_range(vma_pte, remap_head->uaddr, pfn, PAGE_SIZE, vma_pte->vm_page_prot))
+		if (test_remap_pfn_range(vma_pte, remap_head->uaddr, pfn, PAGE_SIZE, vma_pte->vm_page_prot))
 			return -EFAULT;
-		//if (remap_pfn_range(vma_pte, remap_head->uaddr, remap_head->kaddr, sizeof(unsigned long), vma_pte->vm_page_prot)) {
-		//	return -EFAULT;
-		//}
 		remap_head = remap_head->next;
-		break;
+		//break;
 	}
 
 	pr_info("kfree-ing...\n");

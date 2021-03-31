@@ -9,6 +9,12 @@
 #define __expose_page_table 437
 #define PAGE_SIZE 4096
 #define ADDR_SIZE sizeof(unsigned long)
+#define pgd_index(address) (((address) >> 39) & (512 - 1))
+
+static inline unsigned long pud_index(unsigned long address)
+{
+	return (address >> 30) & (512 - 1);
+}
 
 struct n_pg {
 	unsigned long num_page;
@@ -181,14 +187,18 @@ int main(int argc, char *argv[])
 	printf("fake_pmds: %lx \n", args.fake_pmds);
 	printf("page_table_addr: %lx \n", args.page_table_addr);
 
-	expose_page_table_syscall(-1, &args);
-
+	if (expose_page_table_syscall(-1, &args))
+		perror("Error:");
 	//unsigned long test;
 	//unsigned long *test_ptr = &test;
 	//test_ptr = (unsigned long *) args.fake_pgd;
 	//*test_ptr = 0x556713b7e000;
 	//printf("%lx\n", test);
-
+	unsigned long *tmp;
+	tmp = fake_pgd + pgd_index(args.begin_vaddr);
+	printf("%lx, %lx\n", tmp, *tmp);
+	tmp = (unsigned long *)*tmp + pud_index(args.begin_vaddr);
+	printf("%lx, %lx\n", tmp, *tmp);
 	//unsigned long *test = (unsigned long *) args.fake_pgd;
 	//test[0] = 0x556713b7dead;
 	//test[1] = 0x5567deaddead;

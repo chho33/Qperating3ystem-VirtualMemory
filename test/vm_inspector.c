@@ -4,6 +4,8 @@
 #include <sys/mman.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <string.h>
 
 #define __get_pagetable_layout  436
 #define __expose_page_table 437
@@ -170,10 +172,40 @@ int main(int argc, char *argv[])
 	spaces = calculate_pg(args.begin_vaddr, args.end_vaddr, &pt_info);
 
 	page_table_addr = mmap(NULL, spaces.num_page * ADDR_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (page_table_addr == (void *) -1) {
+		fprintf(stderr, "mmap error: %s\n", strerror(errno));
+		exit(-1);
+	}
 	fake_pmds = mmap(NULL, spaces.num_pmd * ADDR_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (fake_pmds == (void *) -1) {
+		munmap(page_table_addr, spaces.num_page * ADDR_SIZE);
+		fprintf(stderr, "mmap error: %s\n", strerror(errno));
+		exit(-1);
+	}
 	fake_puds = mmap(NULL, spaces.num_pud * ADDR_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (fake_puds == (void *) -1) {
+		munmap(fake_pmds, spaces.num_pmd * ADDR_SIZE);
+		munmap(page_table_addr, spaces.num_page * ADDR_SIZE);
+		fprintf(stderr, "mmap error: %s\n", strerror(errno));
+		exit(-1);
+	}
 	fake_p4ds = mmap(NULL, spaces.num_p4d * ADDR_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (fake_p4ds == (void *) -1) {
+		munmap(fake_puds, spaces.num_pud * ADDR_SIZE);
+		munmap(fake_pmds, spaces.num_pmd * ADDR_SIZE);
+		munmap(page_table_addr, spaces.num_page * ADDR_SIZE);
+		fprintf(stderr, "mmap error: %s\n", strerror(errno));
+		exit(-1);
+	}
 	fake_pgd = mmap(NULL, spaces.num_pgd * ADDR_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (fake_pgd == (void *) -1) {
+		munmap(fake_p4ds, spaces.num_p4d * ADDR_SIZE);
+		munmap(fake_puds, spaces.num_pud * ADDR_SIZE);
+		munmap(fake_pmds, spaces.num_pmd * ADDR_SIZE);
+		munmap(page_table_addr, spaces.num_page * ADDR_SIZE);
+		fprintf(stderr, "mmap error: %s\n", strerror(errno));
+		exit(-1);
+	}
 
 	args.fake_pgd = (unsigned long) fake_pgd;
 	args.fake_p4ds = (unsigned long) fake_p4ds;

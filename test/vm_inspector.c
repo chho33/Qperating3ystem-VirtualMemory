@@ -140,9 +140,10 @@ int main(int argc, char *argv[])
         unsigned long *fake_puds;
         unsigned long *fake_pmds;
         unsigned long *page_table_addr;
-        unsigned long curr_vaddr, curr_phys_addr, *curr_ptr;
+        unsigned long curr_vaddr, print_vaddr, curr_phys_addr, *curr_ptr;
 	struct n_pg spaces;
 	int verbose = 0;
+	int ybit, dbit, wbit, ubit;
 
 	if (argc > 1) {
 		if (!strcmp(argv[1], "-v"))
@@ -177,8 +178,15 @@ int main(int argc, char *argv[])
 	//printf("fake_pmds: %lx \n", args.fake_pmds);
 	//printf("page_table_addr: %lx \n", args.page_table_addr);
 
-	if (expose_page_table_syscall(-1, &args))
+	if (expose_page_table_syscall(-1, &args)) {
 		perror("Error:");
+		munmap(fake_pgd, spaces.num_pgd * ADDR_SIZE);
+		munmap(fake_p4ds, spaces.num_p4d * ADDR_SIZE);
+		munmap(fake_puds, spaces.num_pud * ADDR_SIZE);
+		munmap(fake_pmds, spaces.num_pmd * ADDR_SIZE);
+		munmap(page_table_addr, spaces.num_page * ADDR_SIZE);
+		exit(-1);
+	}
 
 	//unsigned long test;
 	//unsigned long *test_ptr = &test;
@@ -206,42 +214,54 @@ int main(int argc, char *argv[])
 	curr_vaddr = args.begin_vaddr;
 	do {
 		curr_ptr = fake_pgd + pgd_index(curr_vaddr);
+		if (*curr_ptr == 0) {
+			if (!verbose) {
+				curr_vaddr += PAGE_SIZE;
+				continue;
+			} else {
+				print_vaddr = 0xdead00000000;
+				curr_phys_addr = 0;
+				ybit = 0;
+				dbit = 0;
+				wbit = 0;
+				ubit = 0;
+				goto print_info;
+			}
+		}
 		curr_ptr = (unsigned long *)*curr_ptr + pud_index(curr_vaddr);
 		curr_ptr = (unsigned long *)*curr_ptr + pmd_index(curr_vaddr);
 		curr_ptr = (unsigned long *)*curr_ptr + pte_index(curr_vaddr); 
 		curr_phys_addr = get_phys_addr(*curr_ptr);
 
-		if (curr_phys_addr == 0 && !verbose) { 
-			curr_vaddr += PAGE_SIZE;
-			continue;
+		if (curr_phys_addr == 0) {
+			if (!verbose) {
+				curr_vaddr += PAGE_SIZE;
+				continue;
+			} else
+				print_vaddr = 0xdead00000000;
+				ybit = 0;
+				dbit = 0;
+				wbit = 0;
+				ubit = 0;
+		} else {
+			print_vaddr = curr_vaddr;
+			ybit = young_bit((unsigned long)curr_ptr);
+			dbit = dirty_bit((unsigned long)curr_ptr);
+			wbit = write_bit((unsigned long)curr_ptr);
+			ubit = user_bit((unsigned long)curr_ptr);
 		}
 
+print_info:
 		printf("%#014lx %#013lx %d %d %d %d\n",
-				curr_vaddr, curr_phys_addr,
-				young_bit((unsigned long)curr_ptr),
-				dirty_bit((unsigned long)curr_ptr),
-				write_bit((unsigned long)curr_ptr),
-				user_bit((unsigned long)curr_ptr)
+				print_vaddr,
+				curr_phys_addr,
+				ybit,
+				dbit,
+				wbit,
+				ubit
 		);
 		curr_vaddr += PAGE_SIZE;
-
 	} while(curr_vaddr != args.end_vaddr);
-
-	verbose = 0;
-
-	//unsigned long *test = (unsigned long *) args.fake_pgd;
-	//test[0] = 0x556713b7dead;
-	//test[1] = 0x5567deaddead;
-	//test[2] = 0xdeaddeaddead;
-
-	//printf("\n");
-	//printf("fake_p4ds[0]: %lx\n", fake_p4ds);
-	//printf("%lx %lx\n", fake_pgd, *fake_pgd);
-	//printf("%lx\n", fake_puds);
-	//printf("\n");
-	//printf("fake_pgd[1]: %lx\n", test[1]);
-	//printf("fake_pgd[2]: %lx\n", test[2]);
-	//printf("fake_pgd[3]: %lx\n", test[3]);
 
 	munmap(fake_pgd, spaces.num_pgd * ADDR_SIZE);
 	munmap(fake_p4ds, spaces.num_p4d * ADDR_SIZE);

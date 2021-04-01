@@ -506,146 +506,6 @@ static inline int vma_walk_pte(struct my_mm_walk *walk, unsigned long addr, bool
 	return vma_walk(walk, RUN_PTE, addr, do_copy, pte);
 }
 
-static inline bool is_cow_mapping(vm_flags_t flags)
-{
-	return (flags & (VM_SHARED | VM_MAYWRITE)) == VM_MAYWRITE;
-}
-
-static int remap_pte_range(struct mm_struct *mm, pmd_t *pmd,
-			unsigned long addr, unsigned long end,
-			unsigned long pfn, pgprot_t prot)
-{
-	pte_t *pte;
-	spinlock_t *ptl;
-	int err = 0;
-
-	pte = pte_alloc_map_lock(mm, pmd, addr, &ptl);
-	if (!pte)
-		return -ENOMEM;
-	arch_enter_lazy_mmu_mode();
-	do {
-		BUG_ON(!pte_none(*pte));
-		if (!pfn_modify_allowed(pfn, prot)) {
-			err = -EACCES;
-			break;
-		}
-		set_pte_at(mm, addr, pte, pte_mkspecial(pfn_pte(pfn, prot)));
-		pfn++;
-	} while (pte++, addr += PAGE_SIZE, addr != end);
-	arch_leave_lazy_mmu_mode();
-	pte_unmap_unlock(pte - 1, ptl);
-	return err;
-}
-
-static inline int remap_pmd_range(struct mm_struct *mm, pud_t *pud,
-			unsigned long addr, unsigned long end,
-			unsigned long pfn, pgprot_t prot)
-{
-	pmd_t *pmd;
-	unsigned long next;
-	int err;
-
-	pfn -= addr >> PAGE_SHIFT;
-	pmd = pmd_alloc(mm, pud, addr);
-	if (!pmd)
-		return -ENOMEM;
-	VM_BUG_ON(pmd_trans_huge(*pmd));
-	do {
-		next = pmd_addr_end(addr, end);
-		err = remap_pte_range(mm, pmd, addr, next,
-				pfn + (addr >> PAGE_SHIFT), prot);
-		if (err)
-			return err;
-	} while (pmd++, addr = next, addr != end);
-	return 0;
-}
-
-static inline int remap_pud_range(struct mm_struct *mm, p4d_t *p4d,
-			unsigned long addr, unsigned long end,
-			unsigned long pfn, pgprot_t prot)
-{
-	pud_t *pud;
-	unsigned long next;
-	int err;
-
-	pfn -= addr >> PAGE_SHIFT;
-	pud = pud_alloc(mm, p4d, addr);
-	if (!pud)
-		return -ENOMEM;
-	do {
-		next = pud_addr_end(addr, end);
-		err = remap_pmd_range(mm, pud, addr, next,
-				pfn + (addr >> PAGE_SHIFT), prot);
-		if (err)
-			return err;
-	} while (pud++, addr = next, addr != end);
-	return 0;
-}
-
-static inline int remap_p4d_range(struct mm_struct *mm, pgd_t *pgd,
-			unsigned long addr, unsigned long end,
-			unsigned long pfn, pgprot_t prot)
-{
-	p4d_t *p4d;
-	unsigned long next;
-	int err;
-
-	pfn -= addr >> PAGE_SHIFT;
-	p4d = p4d_alloc(mm, pgd, addr);
-	if (!p4d)
-		return -ENOMEM;
-	do {
-		next = p4d_addr_end(addr, end);
-		err = remap_pud_range(mm, p4d, addr, next,
-				pfn + (addr >> PAGE_SHIFT), prot);
-		if (err)
-			return err;
-	} while (p4d++, addr = next, addr != end);
-	return 0;
-}
-
-int test_remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
-		    unsigned long pfn, unsigned long size, pgprot_t prot)
-{
-	pgd_t *pgd;
-	unsigned long next;
-	unsigned long end = addr + PAGE_ALIGN(size);
-	struct mm_struct *mm = vma->vm_mm;
-	unsigned long remap_pfn = pfn;
-	int err;
-
-	if (is_cow_mapping(vma->vm_flags)) {
-		if (addr != vma->vm_start || end != vma->vm_end)
-			return -EINVAL;
-		vma->vm_pgoff = pfn;
-	}
-
-	err = track_pfn_remap(vma, &prot, remap_pfn, addr, PAGE_ALIGN(size));
-	if (err)
-		return -EINVAL;
-
-	//vma->vm_flags |= VM_READ | VM_SHARED;
-	//vma->vm_flags |= VM_IO | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP; 
-	vma->vm_flags |= VM_READ | VM_SHARED | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP; 
-
-	BUG_ON(addr >= end);
-	pfn -= addr >> PAGE_SHIFT;
-	pgd = pgd_offset(mm, addr);
-	flush_cache_range(vma, addr, end);
-	do {
-		next = pgd_addr_end(addr, end);
-		err = remap_p4d_range(mm, pgd, addr, next,
-				pfn + (addr >> PAGE_SHIFT), prot);
-		if (err)
-			break;
-	} while (pgd++, addr = next, addr != end);
-
-	if (err)
-		untrack_pfn(vma, remap_pfn, PAGE_ALIGN(size));
-
-	return err;
-}
-
 SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *, args)
 {
 	struct task_struct *protagonist;
@@ -682,12 +542,16 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	node.kargs = kargs;
 	node.ptrs = kargs;
 	node.map_list = &map_list;
-	//node.curr_pte_base = 1;
-	dummy = &map_list;
-	head = &map_list;
 	node.remap_list = &remap_list;
-	remap_dummy = &remap_list;
+	head = &map_list;
+	dummy = &map_list;
 	remap_head = &remap_list;
+	remap_dummy = &remap_list;
+
+	head->next = NULL;
+	dummy->next = NULL;
+	remap_head->next = NULL;
+	remap_dummy->next = NULL;
 
 	// 1. go through the page table tree and get the size of each layer
 	// 2. mmap()
@@ -730,8 +594,7 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 		//printk("remap %lx to %lx\n", remap_head->kaddr, remap_head->uaddr);
 		pfn = __pa(remap_head->kaddr) >> PAGE_SHIFT;
 		printk("remap %lx (pfn: %lx) to %lx\n", remap_head->kaddr, pfn, remap_head->uaddr);
-		//if (remap_pfn_range(vma_pte, remap_head->uaddr, pfn, PAGE_SIZE, vma_pte->vm_page_prot))
-		if (test_remap_pfn_range(vma_pte, remap_head->uaddr, pfn, PAGE_SIZE, vma_pte->vm_page_prot))
+		if (remap_pfn_range(vma_pte, remap_head->uaddr, pfn, PAGE_SIZE, vma_pte->vm_page_prot))
 			return -EFAULT;
 		remap_head = remap_head->next;
 		//break;

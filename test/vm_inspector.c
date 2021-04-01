@@ -26,33 +26,6 @@ static inline unsigned long pte_index(unsigned long address)
 	return (address >> 12) & (512- 1);
 }
 
-struct n_pg {
-	unsigned long num_page;
-	unsigned long num_pmd;
-	unsigned long num_pud;
-	unsigned long num_p4d;
-	unsigned long num_pgd;
-};
-
-// a rounded-up version
-struct n_pg calculate_pg(unsigned long start, unsigned long end)
-{
-	struct n_pg ret;
-	ret.num_page = ((end >> 12) - (start >> 21 << 21 >> 12));
-	ret.num_pmd  = ((end >> 21) - (start >> 30 << 30 >> 21));
-	ret.num_pud  = ((end >> 30) - (start >> 39 << 39 >> 30));
-	ret.num_p4d  = ((end >> 39) - (start >> 39));
-	ret.num_pgd  = 512;
-	if (end % (1 << 21))
-		ret.num_pmd++;
-	if (end % (1 << 30))
-		ret.num_pud++;
-	if (end % ((unsigned long)1 << 39))
-		ret.num_p4d++;
-
-	return ret;
-}
-
 struct pagetable_layout_info {
 	uint32_t pgdir_shift;
 	uint32_t p4d_shift;
@@ -71,6 +44,43 @@ struct expose_pgtbl_args {
 	unsigned long end_vaddr;
 };
 
+
+struct n_pg {
+	unsigned long num_page;
+	unsigned long num_pmd;
+	unsigned long num_pud;
+	unsigned long num_p4d;
+	unsigned long num_pgd;
+};
+
+struct n_pg calculate_pg(unsigned long start, unsigned long end, struct pagetable_layout_info *pt_info)
+{
+	struct n_pg ret;
+	//ret.num_page = ((end >> 12) - (start >> 21 << 21 >> 12));
+	//printf("(end >> %d) - (start >> %d << %d >> %d)\n", pt_info->page_shift, pt_info->pmd_shift, pt_info->pmd_shift, pt_info->page_shift);
+	ret.num_page = ((end >> pt_info->page_shift) - (start >> pt_info->pmd_shift << pt_info->pmd_shift >> pt_info->page_shift));
+	//ret.num_pmd  = ((end >> 21) - (start >> 30 << 30 >> 21));
+	//printf("(end >> %d) - (start >> %d << %d >> %d)\n", pt_info->pmd_shift, pt_info->pud_shift, pt_info->pud_shift, pt_info->pmd_shift);
+	ret.num_pmd  = ((end >> pt_info->pmd_shift) - (start >> pt_info->pud_shift << pt_info->pud_shift >> pt_info->pmd_shift));
+	//ret.num_pud  = ((end >> 30) - (start >> 39 << 39 >> 30));
+	//printf("(end >> %d) - (start >> %d << %d >> %d)\n", pt_info->pud_shift, pt_info->p4d_shift, pt_info->p4d_shift,  pt_info->pud_shift);
+	ret.num_pud  = ((end >> pt_info->pud_shift) - (start >> pt_info->p4d_shift << pt_info->p4d_shift >> pt_info->pud_shift));
+	//ret.num_p4d  = ((end >> 39) - (start >> 39));
+	//printf("(end >> %d) - (start >> %d)\n", pt_info->p4d_shift, pt_info->p4d_shift);
+	ret.num_p4d  = ((end >> pt_info->p4d_shift) - (start >> pt_info->p4d_shift));
+	ret.num_pgd  = 512;
+	//if (end % (1 << 21))
+	if (end % (1 << pt_info->pmd_shift))
+		ret.num_pmd++;
+	//if (end % (1 << 30))
+	if (end % (1 << pt_info->pud_shift))
+		ret.num_pud++;
+	//if (end % ((unsigned long)1 << 39))
+	if (end % ((unsigned long)1 << pt_info->p4d_shift))
+		ret.num_p4d++;
+
+	return ret;
+}
 
 long get_pagetable_layout_syscall(struct pagetable_layout_info *pgtbl_info)
 {
@@ -133,6 +143,7 @@ void show_layout()
 
 int main(int argc, char *argv[])
 {
+	struct pagetable_layout_info pt_info;
 	struct expose_pgtbl_args args;
 	size_t addr_len;
         unsigned long *fake_pgd;
@@ -150,15 +161,13 @@ int main(int argc, char *argv[])
 			verbose = 1;
 	}
 
-	get_pagetable_layout_syscall(NULL);
+	get_pagetable_layout_syscall(&pt_info);
 	show_layout();
 	printf("Enter begin_vaddr in hex:");
 	scanf("%lx", &(args.begin_vaddr));
-	//printf("Your input is:%lx\n", args.begin_vaddr);
 	printf("Enter end_vaddr in hex:");
 	scanf("%lx", &(args.end_vaddr));
-	//printf("Your input is:%lx\n", args.end_vaddr);
-	spaces = calculate_pg(args.begin_vaddr, args.end_vaddr);
+	spaces = calculate_pg(args.begin_vaddr, args.end_vaddr, &pt_info);
 
 	page_table_addr = mmap(NULL, spaces.num_page * ADDR_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	fake_pmds = mmap(NULL, spaces.num_pmd * ADDR_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -188,12 +197,6 @@ int main(int argc, char *argv[])
 		exit(-1);
 	}
 
-	//unsigned long test;
-	//unsigned long *test_ptr = &test;
-	//test_ptr = (unsigned long *) args.fake_pgd;
-	//*test_ptr = 0x556713b7e000;
-	//printf("%lx\n", test);
-	
 	//unsigned long *tmp;
 	//int iters = (args.end_vaddr - args.begin_vaddr) >> 12;
 

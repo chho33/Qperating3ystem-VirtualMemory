@@ -21,8 +21,17 @@ SYSCALL_DEFINE1(get_pagetable_layout, struct pagetable_layout_info __user *, pgt
 	struct pagetable_layout_info kinfo;
 
 	kinfo.pgdir_shift = PGDIR_SHIFT;
+	#ifndef P4D_SHIFT
+	#define P4D_SHIFT PGDIR_SHIFT
+	#endif
 	kinfo.p4d_shift = P4D_SHIFT;
+	#ifndef PUD_SHIFT
+	#define PUD_SHIFT P4D_SHIFT
+	#endif
 	kinfo.pud_shift = PUD_SHIFT;
+	#ifndef PMD_SHIFT
+	#define PMD_SHIFT PUD_SHIFT
+	#endif
 	kinfo.pmd_shift = PMD_SHIFT;
 	kinfo.page_shift = PAGE_SHIFT;
 
@@ -421,6 +430,14 @@ static int vma_walk(struct my_mm_walk *walk, int run_tag, unsigned long addr, bo
 		case RUN_PUD:
 			if (!do_copy)
 				return 0;
+			if (PGDIR_SHIFT == PUD_SHIFT){
+				store = to_do->kargs.fake_pgd +
+					pgd_index(addr) * ADDR_SIZE;
+			} else if (P4D_SHIFT == PUD_SHIFT){
+				store = to_do->ptrs.fake_p4ds;
+			} else {
+				store = to_do->ptrs.fake_puds;
+			}
 			store = to_do->ptrs.fake_puds;
 			goods = to_do->ptrs.fake_pmds -
 				pmd_index(addr) * ADDR_SIZE;
@@ -429,6 +446,16 @@ static int vma_walk(struct my_mm_walk *walk, int run_tag, unsigned long addr, bo
 		case RUN_PMD:
 			if (!do_copy)
 				return 0;
+			if (PGDIR_SHIFT == PMD_SHIFT){
+				store = to_do->kargs.fake_pgd +
+					pgd_index(addr) * ADDR_SIZE;
+			} else if (P4D_SHIFT == PMD_SHIFT){
+				store = to_do->ptrs.fake_p4ds;
+			} else if (PUD_SHIFT == PMD_SHIFT){
+				store = to_do->ptrs.fake_puds;
+			} else {
+				store = to_do->ptrs.fake_pmds;
+			}
 			store = to_do->ptrs.fake_pmds;
 			goods = to_do->ptrs.page_table_addr;
 			pr_info("                store: %lx; goods: %lx; page_table_addr: %lx", store, goods, to_do->ptrs.page_table_addr);

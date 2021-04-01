@@ -1,7 +1,7 @@
 #include <linux/expose_pgtbl.h>
 #include <linux/syscalls.h>
-#include <asm/io.h>
-#include <asm/mmu_context.h>
+#include <linux/io.h>
+#include <linux/mmu_context.h>
 #include <asm/pgalloc.h>
 #include <linux/uaccess.h>
 #include <asm/tlb.h>
@@ -16,7 +16,8 @@ pud_t *pud_check;
 pmd_t *pmd_check;
 pte_t *pte_check;
 
-SYSCALL_DEFINE1(get_pagetable_layout, struct pagetable_layout_info __user *, pgtbl_info)
+SYSCALL_DEFINE1(get_pagetable_layout,
+		struct pagetable_layout_info __user *, pgtbl_info)
 {
 	struct pagetable_layout_info kinfo;
 
@@ -35,22 +36,23 @@ SYSCALL_DEFINE1(get_pagetable_layout, struct pagetable_layout_info __user *, pgt
 	kinfo.pmd_shift = PMD_SHIFT;
 	kinfo.page_shift = PAGE_SHIFT;
 
-	printk(KERN_INFO "PAGE_OFFSET = 0x%lx\n", PAGE_OFFSET);
-	printk(KERN_INFO "PGDIR_SHIFT = %d\n", PGDIR_SHIFT);
-	printk(KERN_INFO "P4D_SHIFT = %d\n", P4D_SHIFT);
-	printk(KERN_INFO "PUD_SHIFT = %d\n", PUD_SHIFT);
-	printk(KERN_INFO "PMD_SHIFT = %d\n", PMD_SHIFT);
-	printk(KERN_INFO "PAGE_SHIFT = %d\n", PAGE_SHIFT);
+	//pr_info("PAGE_OFFSET = 0x%lx\n", PAGE_OFFSET);
+	pr_info("PGDIR_SHIFT = %d\n", PGDIR_SHIFT);
+	pr_info("P4D_SHIFT = %d\n", P4D_SHIFT);
+	pr_info("PUD_SHIFT = %d\n", PUD_SHIFT);
+	pr_info("PMD_SHIFT = %d\n", PMD_SHIFT);
+	pr_info("PAGE_SHIFT = %d\n", PAGE_SHIFT);
 
-	printk(KERN_INFO "PTRS_PER_PGD = %d\n", PTRS_PER_PGD);
-	printk(KERN_INFO "PTRS_PER_P4D = %d\n", PTRS_PER_P4D);
-	printk(KERN_INFO "PTRS_PER_PUD = %d\n", PTRS_PER_PUD);
-	printk(KERN_INFO "PTRS_PER_PMD = %d\n", PTRS_PER_PMD);
-	printk(KERN_INFO "PTRS_PER_PTE = %d\n", PTRS_PER_PTE);
+	pr_info("PTRS_PER_PGD = %d\n", PTRS_PER_PGD);
+	pr_info("PTRS_PER_P4D = %d\n", PTRS_PER_P4D);
+	pr_info("PTRS_PER_PUD = %d\n", PTRS_PER_PUD);
+	pr_info("PTRS_PER_PMD = %d\n", PTRS_PER_PMD);
+	pr_info("PTRS_PER_PTE = %d\n", PTRS_PER_PTE);
 
-	printk(KERN_INFO "PAGE_MASK = 0x%lx\n", PAGE_MASK);
+	//pr_info("PAGE_MASK = 0x%lx\n", PAGE_MASK);
 
-	if (copy_to_user(pgtbl_info, &kinfo, sizeof(struct pagetable_layout_info)))
+	if (copy_to_user(pgtbl_info, &kinfo,
+		sizeof(struct pagetable_layout_info)))
 		return -EFAULT;
 
 	return 0;
@@ -69,34 +71,20 @@ static int walk_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 {
 	pte_t *pte;
 	int err = 0;
-	const struct my_mm_walk_ops *ops = walk->ops;
-	unsigned long paddr = 0;
-	unsigned long page_addr = 0;
-	unsigned long page_offset = 0;
 	bool do_copy = true;
 
 	pte = pte_offset_map(pmd, addr);
-	//err = ops->pte_entry(walk);
-	//if (err)
-	//	return err;
 
 	for (;;) {
-		pr_info("                    pte: %lx, %lx, %lx, %lx\n", pte, __pa(pte), addr, (((1UL << 52) - 1) & pte->pte));
-		//page_addr = pte_val(*pte) & PAGE_MASK;
-		//page_offset = addr & ~PAGE_MASK;
-		//paddr = page_addr | page_offset;
-		//pr_info("                    pte: %lx, %lx", &addr, addr);
-		//printk("                    page_addr = %lx, page_offset = %lx\n", page_addr, page_offset);
-		//printk("                    vaddr = %lx, paddr = %lx\n", addr, paddr);
+		//pr_info("\t\t  pte: %lx, %lx, %lx, %lx\n",
+		//		pte, __pa(pte), addr,
+		//		(((1UL << 52) - 1) & pte->pte));
 
 		if (pte == pte_check)
 			do_copy = false;
 		else
 			pte_check = pte;
-		//err = ops->pte_entry(walk, addr, do_copy, pte);
 		do_copy = true;
-		//if(err)
-		//	break;
 
 		addr += PAGE_SIZE;
 		pte_size++;
@@ -104,7 +92,6 @@ static int walk_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 			break;
 		pte++;
 	}
-// try xxx_val() ??
 	pte_unmap(pte);
 	return err;
 }
@@ -119,30 +106,13 @@ static int walk_pmd_range(pud_t *pud, unsigned long addr, unsigned long end,
 	bool do_copy = true;
 
 	pmd = pmd_offset(pud, addr);
-	//err = ops->pmd_entry(walk);
-	//if (err)
-	//	return err;
 	do {
-again:
 		next = pmd_addr_end(addr, end);
-		pr_info("                pmd: %lx, %lx %lx, %lx, %lx\n", pmd, pte_offset_map(pmd, addr), (pte_t *)pmd_page_vaddr(*pmd), pte_index(addr), native_pmd_val(*pmd));
-		//pr_info("                pmd: %lx, %lx", &addr, addr);
-		//if (pmd_none(*pmd) || !walk->vma) {
-		//	if (ops->pte_hole)
-		//		err = ops->pte_hole(addr, next, walk);
-		//	if (err)
-		//		break;
-		//	continue;
-		//}
-		/*
-		 * This implies that each ->pmd_entry() handler
-		 * needs to know about pmd_trans_huge() pmds
-		 */
-
-		/*
-		 * Check this here so we only break down trans_huge
-		 * pages when we _need_ to
-		 */
+		//pr_info("\t\tpmd: %lx, %lx %lx, %lx\n",
+		//	pmd,
+		//	pte_offset_map(pmd, addr),
+		//	(pte_t *)pmd_page_vaddr(*pmd),
+		//	pte_index(addr));
 		if (!ops->pte_entry)
 			continue;
 
@@ -154,12 +124,8 @@ again:
 			err = ops->pmd_entry(walk, addr, do_copy,
 					pte_offset_map(pmd, addr));
 		do_copy = true;
-		if(err)
+		if (err)
 			break;
-
-		//split_huge_pmd(walk->vma, pmd, addr);
-		//if (pmd_trans_unstable(pmd))
-		//	goto again;
 		err = walk_pte_range(pmd, addr, next, walk);
 		if (err)
 			break;
@@ -179,33 +145,12 @@ static int walk_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
 	bool do_copy = true;
 
 	pud = pud_offset(p4d, addr);
-	//err = ops->pud_entry(walk);
-	//if (err)
-	//	return err;
 	do {
- again:
 		next = pud_addr_end(addr, end);
-		pr_info("            pud: %lx, %lx, %lx, %lx, %lx\n", pud, pmd_offset(pud, addr), (pmd_t *)pud_page_vaddr(*pud), pmd_index(addr), native_pud_val(*pud));
-		//pr_info("            pud: %lx, %lx", &addr, addr);
-		//if (pud_none(*pud) || !walk->vma) {
-		//	if (ops->pte_hole)
-		//		err = ops->pte_hole(addr, next, walk);
-		//	if (err)
-		//		break;
-		//	continue;
-		//}
-
-		//if (ops->pud_entry) {
-		//	spinlock_t *ptl = pud_trans_huge_lock(pud, walk->vma);
-
-		//	if (ptl) {
-		//		err = ops->pud_entry(walk);
-		//		spin_unlock(ptl);
-		//		if (err)
-		//			break;
-		//		continue;
-		//	}
-		//}
+		//pr_info("\t    pud: %lx, %lx, %lx, %lx\n",
+		//		pud, pmd_offset(pud, addr),
+		//		(pmd_t *)pud_page_vaddr(*pud),
+		//		pmd_index(addr));
 
 		if (pud == pud_check)
 			do_copy = false;
@@ -213,12 +158,8 @@ static int walk_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
 			pud_check = pud;
 		err = ops->pud_entry(walk, addr, do_copy);
 		do_copy = true;
-		if(err)
+		if (err)
 			break;
-
-		//split_huge_pud(walk->vma, pud, addr);
-		//if (pud_none(*pud))
-		//	goto again;
 
 		if (ops->pmd_entry || ops->pte_entry)
 			err = walk_pmd_range(pud, addr, next, walk);
@@ -234,28 +175,22 @@ static int walk_p4d_range(pgd_t *pgd, unsigned long addr, unsigned long end,
 			  struct my_mm_walk *walk)
 {
 	p4d_t *p4d;
-	unsigned long next, *base;
+	unsigned long next;
 	const struct my_mm_walk_ops *ops = walk->ops;
 	int err = 0;
 	bool do_copy = true;
 
 	p4d = p4d_offset(pgd, addr);
-	//err = ops->p4d_entry(walk);
-	//if (err)
-	//	return err;
 
 	do {
 		next = p4d_addr_end(addr, end);
-		pr_info("        p4d: %lx, %lx, %lx, %lx, %lx, %lx\n", p4d, pud_offset(p4d, addr), (pud_t *)p4d_page_vaddr(*p4d), pud_index(addr), (pud_t *)p4d_page_vaddr(*p4d)+pud_index(addr), native_p4d_val(*p4d));
-		//pr_info("        p4d: %lx, %lx", &addr, addr);
-		//if (p4d_none_or_clear_bad(p4d)) {
-		//	if (ops->pte_hole)
-		//		err = ops->pte_hole(addr, next, walk);
-		//	if (err)
-		//		break;
-		//	continue;
-		//}
-		
+		//pr_info("\tp4d: %lx, %lx, %lx, %lx, %lx, %lx\n",
+		//	p4d, pud_offset(p4d, addr),
+		//	(pud_t *)p4d_page_vaddr(*p4d),
+		//	pud_index(addr),
+		//	(pud_t *)p4d_page_vaddr(*p4d)+pud_index(addr),
+		//	native_p4d_val(*p4d));
+
 		if (p4d == p4d_check)
 			do_copy = false;
 		else
@@ -281,33 +216,17 @@ static int walk_pgd_range(unsigned long addr, unsigned long end,
 	pgd_t *pgd;
 	unsigned long next;
 	const struct my_mm_walk_ops *ops = walk->ops;
-	struct to_do *to_do = walk->private;
 	int err = 0;
 	bool do_copy = true;
 
 	pgd = pgd_offset(walk->mm, addr);
-	pr_info("    mm->pgd: %lx; addr: %lx\n", walk->mm->pgd, addr);
-
-	//err = ops->pgd_entry(walk);
-	//if(err)
-	//	return err;
+	//pr_info("    mm->pgd: %lx; addr: %lx\n", walk->mm->pgd, addr);
 
 	do {
 		next = pgd_addr_end(addr, end);
-		//err = ops->pgd_entry(walk);
-		//if(err)
-		//	return;
 
-		pr_info("    pgd: %lx, %lx\n", pgd, p4d_offset(pgd, addr));
-		//pr_info("    pgd: %lx, %lx\n", &addr, addr);
-		//if (pgd_none_or_clear_bad(pgd)) {
-		//	if (ops->pte_hole)
-		//		err = ops->pte_hole(addr, next, walk);
-		//	if (err)
-		//		break;
-		//	continue;
-		//}
-
+		//pr_info("    pgd: %lx, %lx\n", pgd,
+		//	p4d_offset(pgd, addr));
 		if (pgd == pgd_check)
 			do_copy = false;
 		else
@@ -332,23 +251,10 @@ static int walk_page_test(unsigned long start, unsigned long end,
 			struct my_mm_walk *walk)
 {
 	struct vm_area_struct *vma = walk->vma;
-	const struct my_mm_walk_ops *ops = walk->ops;
 
-	//if (ops->test_walk)
-	//	return ops->test_walk(start, end, walk);
-
-	/*
-	 * vma(VM_PFNMAP) doesn't have any valid struct pages behind VM_PFNMAP
-	 * range, so we don't walk over it as we do for normal vmas. However,
-	 * Some callers are interested in handling hole range and they don't
-	 * want to just ignore any single address range. Such users certainly
-	 * define their ->pte_hole() callbacks, so let's delegate them to handle
-	 * vma(VM_PFNMAP).
-	 */
 	if (vma->vm_flags & VM_PFNMAP) {
 		int err = 1;
-		//if (ops->pte_hole)
-		//	err = ops->pte_hole(start, end, walk);
+
 		return err ? err : 1;
 	}
 	return 0;
@@ -361,14 +267,12 @@ static int _walk_page_vma(struct vm_area_struct *vma,
 	unsigned long end;
 
 	struct my_mm_walk walk = {
-		.ops		= ops,
-		.mm		= vma->vm_mm,
-		.vma	    	= vma,
-		.private	= private,
+		.ops = ops,
+		.mm = vma->vm_mm,
+		.vma = vma,
+		.private = private,
 	};
 	int err;
-
-	//return walk_pgd_range(vma->vm_start, vma->vm_end, &walk);
 
 	if (vma->vm_start >= private->kargs.end_vaddr ||
 		vma->vm_end <= private->kargs.begin_vaddr)
@@ -394,146 +298,154 @@ static int _walk_page_vma(struct vm_area_struct *vma,
 	return walk_pgd_range(addr, end, &walk);
 }
 
-static int vma_walk(struct my_mm_walk *walk, int run_tag, unsigned long addr, bool do_copy, pte_t *pte)
+static int vma_walk(struct my_mm_walk *walk, int run_tag,
+		unsigned long addr, bool do_copy, pte_t *pte)
 {
 	struct to_do *to_do = walk->private;
-	unsigned long *store;
-	unsigned long goods;
+	unsigned long *store = NULL;
+	unsigned long goods = 0;
 
-	//TODO if the upper level entry is already built,
-	//     don't add a new entry but just return.
-	
+	switch (run_tag) {
+	case RUN_PGD:
+		if ((PGDIR_SHIFT == P4D_SHIFT) | !do_copy)
+			return 0;
+		store = (unsigned long *) (to_do->kargs.fake_pgd +
+			pgd_index(addr) * ADDR_SIZE);
+		goods = to_do->ptrs.fake_p4ds -
+			p4d_index(addr) * ADDR_SIZE;
+		//pr_info("    store: %lx; goods: %lx; fake_p4ds: %lx",
+		//	store, goods, to_do->ptrs.fake_p4ds);
+		break;
+	case RUN_P4D:
+		if (!do_copy)
+			return 0;
+		if (PGDIR_SHIFT == P4D_SHIFT) {
+			store = (unsigned long *) (to_do->kargs.fake_pgd +
+				pgd_index(addr) * ADDR_SIZE);
+		} else {
+			store = (unsigned long *) to_do->ptrs.fake_p4ds;
+		}
+		goods = to_do->ptrs.fake_puds -
+			pud_index(addr) * ADDR_SIZE;
+		//pr_info("\tstore: %lx; goods: %lx; fake_puds: %lx",
+		//	store, goods, to_do->ptrs.fake_puds);
+		break;
+	case RUN_PUD:
+		if (!do_copy)
+			return 0;
+		if (PGDIR_SHIFT == PUD_SHIFT) {
+			store = (unsigned long *) (to_do->kargs.fake_pgd +
+				pgd_index(addr) * ADDR_SIZE);
+		} else if (P4D_SHIFT == PUD_SHIFT) {
+			store = (unsigned long *) to_do->ptrs.fake_p4ds;
+		} else {
+			store = (unsigned long *) to_do->ptrs.fake_puds;
+		}
+		store = (unsigned long *) to_do->ptrs.fake_puds;
+		goods = to_do->ptrs.fake_pmds -
+			pmd_index(addr) * ADDR_SIZE;
+		//pr_info("\t    store: %lx; goods: %lx; fake_pmds: %lx",
+		//	store, goods, to_do->ptrs.fake_pmds);
+		break;
+	case RUN_PMD:
+		if (!do_copy)
+			return 0;
+		if (PGDIR_SHIFT == PMD_SHIFT) {
+			store = (unsigned long *) (to_do->kargs.fake_pgd +
+				pgd_index(addr) * ADDR_SIZE);
+		} else if (P4D_SHIFT == PMD_SHIFT) {
+			store = (unsigned long *) to_do->ptrs.fake_p4ds;
+		} else if (PUD_SHIFT == PMD_SHIFT) {
+			store = (unsigned long *) to_do->ptrs.fake_puds;
+		} else {
+			store = (unsigned long *) to_do->ptrs.fake_pmds;
+		}
+		store = (unsigned long *) to_do->ptrs.fake_pmds;
+		goods = to_do->ptrs.page_table_addr;
+		//pr_info("\t\tstore: %lx; goods: %lx; pt_addr: %lx",
+		//	store, goods, to_do->ptrs.page_table_addr);
+		to_do->remap_list->next = kmalloc(
+				sizeof(struct remap_linked_list),
+				GFP_KERNEL);
+		to_do->remap_list = to_do->remap_list->next;
+		to_do->remap_list->kaddr = (unsigned long)pte;
+		to_do->remap_list->uaddr = to_do->ptrs.page_table_addr;
+		to_do->remap_list->next = NULL;
 
-	switch(run_tag) {
-		case RUN_PGD:
-			if (PGDIR_SHIFT == P4D_SHIFT | !do_copy)
-				return 0;
-			store = to_do->kargs.fake_pgd +
-				pgd_index(addr) * ADDR_SIZE;
-			goods = to_do->ptrs.fake_p4ds -
-				p4d_index(addr) * ADDR_SIZE;
-			pr_info("    store: %lx; goods: %lx; fake_p4ds: %lx", store, goods, to_do->ptrs.fake_p4ds);
-			break;
-		case RUN_P4D:
-			if (!do_copy)
-				return 0;
-			if (PGDIR_SHIFT == P4D_SHIFT){
-				store = to_do->kargs.fake_pgd +
-					pgd_index(addr) * ADDR_SIZE;
-			} else {
-				store = to_do->ptrs.fake_p4ds;
-			}
-			goods = to_do->ptrs.fake_puds -
-				pud_index(addr) * ADDR_SIZE;
-			pr_info("        store: %lx; goods: %lx; fake_puds: %lx", store, goods, to_do->ptrs.fake_puds);
-			break;
-		case RUN_PUD:
-			if (!do_copy)
-				return 0;
-			if (PGDIR_SHIFT == PUD_SHIFT){
-				store = to_do->kargs.fake_pgd +
-					pgd_index(addr) * ADDR_SIZE;
-			} else if (P4D_SHIFT == PUD_SHIFT){
-				store = to_do->ptrs.fake_p4ds;
-			} else {
-				store = to_do->ptrs.fake_puds;
-			}
-			store = to_do->ptrs.fake_puds;
-			goods = to_do->ptrs.fake_pmds -
-				pmd_index(addr) * ADDR_SIZE;
-			pr_info("            store: %lx; goods: %lx; fake_pmds: %lx", store, goods, to_do->ptrs.fake_pmds);
-			break;
-		case RUN_PMD:
-			if (!do_copy)
-				return 0;
-			if (PGDIR_SHIFT == PMD_SHIFT){
-				store = to_do->kargs.fake_pgd +
-					pgd_index(addr) * ADDR_SIZE;
-			} else if (P4D_SHIFT == PMD_SHIFT){
-				store = to_do->ptrs.fake_p4ds;
-			} else if (PUD_SHIFT == PMD_SHIFT){
-				store = to_do->ptrs.fake_puds;
-			} else {
-				store = to_do->ptrs.fake_pmds;
-			}
-			store = to_do->ptrs.fake_pmds;
-			goods = to_do->ptrs.page_table_addr;
-			pr_info("                store: %lx; goods: %lx; page_table_addr: %lx", store, goods, to_do->ptrs.page_table_addr);
-			to_do->remap_list->next = kmalloc(sizeof(struct remap_linked_list), GFP_KERNEL);
-			to_do->remap_list = to_do->remap_list->next;
-			to_do->remap_list->kaddr = (unsigned long)pte;
-			to_do->remap_list->uaddr = to_do->ptrs.page_table_addr;
-			to_do->remap_list->next = NULL;
-
-			break;
-		default:
-			break;
+		break;
+	default:
+		break;
 	}
 
-	to_do->map_list->next = kmalloc(sizeof(struct map_linked_list), GFP_KERNEL);
-	if(!to_do->map_list->next)
+	to_do->map_list->next = kmalloc(sizeof(struct map_linked_list),
+			GFP_KERNEL);
+	if (!to_do->map_list->next)
 		return -ENOMEM;
 
 	to_do->map_list = to_do->map_list->next;
 	to_do->map_list->store = (unsigned long *) store;
 	to_do->map_list->goods = goods;
 	to_do->map_list->next = NULL;
-	//pr_info("store: %lx, goods: %lx\n", store, goods);
 
-go_next:
-	switch(run_tag) {
-		case RUN_PGD:
+	switch (run_tag) {
+	case RUN_PGD:
+		to_do->ptrs.fake_pgd += ADDR_SIZE;
+		break;
+	case RUN_P4D:
+		if (PGDIR_SHIFT == P4D_SHIFT) {
 			to_do->ptrs.fake_pgd += ADDR_SIZE;
 			break;
-		case RUN_P4D:
-			if (PGDIR_SHIFT == P4D_SHIFT) {
-				to_do->ptrs.fake_pgd += ADDR_SIZE;
-				break;
-			}
-			to_do->ptrs.fake_p4ds += ADDR_SIZE;
-			break;
-		case RUN_PUD:
-			to_do->ptrs.fake_puds += ADDR_SIZE;
-			break;
-		case RUN_PMD:
-			to_do->ptrs.fake_pmds += ADDR_SIZE;
-			to_do->ptrs.page_table_addr += 1 << PAGE_SHIFT;
-			break;
-		case RUN_PTE:
-			to_do->ptrs.page_table_addr += ADDR_SIZE;
-			break;
-		default:
-			break;
+		}
+		to_do->ptrs.fake_p4ds += ADDR_SIZE;
+		break;
+	case RUN_PUD:
+		to_do->ptrs.fake_puds += ADDR_SIZE;
+		break;
+	case RUN_PMD:
+		to_do->ptrs.fake_pmds += ADDR_SIZE;
+		to_do->ptrs.page_table_addr += 1 << PAGE_SHIFT;
+		break;
+	case RUN_PTE:
+		to_do->ptrs.page_table_addr += ADDR_SIZE;
+		break;
+	default:
+		break;
 	}
 	return 0;
 }
 
-static inline int vma_walk_pgd(struct my_mm_walk *walk, unsigned long addr, bool do_copy)
+static inline int vma_walk_pgd(struct my_mm_walk *walk, unsigned long addr,
+		bool do_copy)
 {
 	return vma_walk(walk, RUN_PGD, addr, do_copy, NULL);
 }
 
-static inline int vma_walk_p4d(struct my_mm_walk *walk, unsigned long addr, bool do_copy)
+static inline int vma_walk_p4d(struct my_mm_walk *walk, unsigned long addr,
+		bool do_copy)
 {
 	return vma_walk(walk, RUN_P4D, addr, do_copy, NULL);
 }
 
-static inline int vma_walk_pud(struct my_mm_walk *walk, unsigned long addr, bool do_copy)
+static inline int vma_walk_pud(struct my_mm_walk *walk, unsigned long addr,
+		bool do_copy)
 {
 	return vma_walk(walk, RUN_PUD, addr, do_copy, NULL);
 }
 
-static inline int vma_walk_pmd(struct my_mm_walk *walk, unsigned long addr, bool do_copy, pte_t *pte)
+static inline int vma_walk_pmd(struct my_mm_walk *walk, unsigned long addr,
+		bool do_copy, pte_t *pte)
 {
 	return vma_walk(walk, RUN_PMD, addr, do_copy, pte);
 }
 
-static inline int vma_walk_pte(struct my_mm_walk *walk, unsigned long addr, bool do_copy, pte_t *pte)
+static inline int vma_walk_pte(struct my_mm_walk *walk, unsigned long addr,
+		bool do_copy, pte_t *pte)
 {
 	return vma_walk(walk, RUN_PTE, addr, do_copy, pte);
 }
 
-SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *, args)
+SYSCALL_DEFINE2(expose_page_table, pid_t, pid,
+		struct expose_pgtbl_args __user *, args)
 {
 	struct task_struct *protagonist;
 	struct mm_struct *src_mm;
@@ -557,7 +469,7 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	pud_size = 0;
 	pmd_size = 0;
 	pte_size = 0;
-        pgd_check = NULL;
+	pgd_check = NULL;
 	p4d_check = NULL;
 	pud_check = NULL;
 	pmd_check = NULL;
@@ -580,9 +492,6 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	remap_head->next = NULL;
 	remap_dummy->next = NULL;
 
-	// 1. go through the page table tree and get the size of each layer
-	// 2. mmap()
-	// 3. build the fake layers.
 	read_lock(&tasklist_lock);
 	if (pid == -1)
 		protagonist = current;
@@ -598,18 +507,19 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 	src_mm = protagonist->mm;
 	down_write(&src_mm->mmap_sem);
 	for (mpnt = src_mm->mmap; mpnt; mpnt = mpnt->vm_next) {
-		printk(KERN_INFO "vma range: 0x%lx, 0x%lx, %d\n", mpnt->vm_start, mpnt->vm_end, (mpnt->vm_end - mpnt->vm_start) / PAGE_SIZE);
+		//pr_info("vma range: 0x%lx, 0x%lx, %d\n",
+		//		mpnt->vm_start, mpnt->vm_end,
+		//		(mpnt->vm_end - mpnt->vm_start) / PAGE_SIZE);
 		size += (mpnt->vm_end - mpnt->vm_start) / PAGE_SIZE;
 		_walk_page_vma(mpnt, &ops, &node);
-		//printk("map_list: %lx, %lx\n", node.map_list->store, node.map_list->goods);
-		//printk("head->next: %lx, %lx\n", head->next->store, head->next->goods);
 	}
 	up_write(&src_mm->mmap_sem);
 
 	head = head->next;
-	while(head) {
-		printk("copy %lx to %lx\n", head->goods, head->store);
-		if (copy_to_user(head->store, &head->goods, sizeof(unsigned long))) {
+	while (head) {
+		//pr_info("copy %lx to %lx\n", head->goods, head->store);
+		if (copy_to_user(head->store, &head->goods,
+					sizeof(unsigned long))) {
 			return -EFAULT;
 		}
 		head = head->next;
@@ -617,32 +527,27 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 
 	vma_pte = find_vma(current->mm, kargs.page_table_addr);
 	remap_head = remap_head->next;
-	while(remap_head) {
-		//printk("remap %lx to %lx\n", remap_head->kaddr, remap_head->uaddr);
+	while (remap_head) {
 		pfn = __pa(remap_head->kaddr) >> PAGE_SHIFT;
-		printk("remap %lx (pfn: %lx) to %lx\n", remap_head->kaddr, pfn, remap_head->uaddr);
-		if (remap_pfn_range(vma_pte, remap_head->uaddr, pfn, PAGE_SIZE, vma_pte->vm_page_prot))
+		//pr_info("remap %lx (pfn: %lx) to %lx\n",
+		//	remap_head->kaddr, pfn, remap_head->uaddr);
+		if (remap_pfn_range(vma_pte, remap_head->uaddr, pfn,
+					PAGE_SIZE, vma_pte->vm_page_prot))
 			return -EFAULT;
 		remap_head = remap_head->next;
-		//break;
 	}
 
 	pr_info("kfree-ing...\n");
-	if(dummy->next)
-		kfree(dummy->next);
-	if(remap_dummy->next)
-		kfree(remap_dummy->next);
+	kfree(dummy->next);
+	kfree(remap_dummy->next);
 	pr_info("==================\n");
 
-	printk("size: %d\n", size);
-	printk("pgd_size: %d\n", pgd_size);
-	printk("p4d_size: %d\n", p4d_size);
-	printk("pud_size: %d\n", pud_size);
-	printk("pmd_size: %d\n", pmd_size);
-	printk("pte_size: %d\n", pte_size);
-
-	//if (copy_to_user(args, &kargs, sizeof(struct expose_pgtbl_args)))
-	//	return -EFAULT;
+	pr_info("size: %d\n", size);
+	pr_info("pgd_size: %d\n", pgd_size);
+	pr_info("p4d_size: %d\n", p4d_size);
+	pr_info("pud_size: %d\n", pud_size);
+	pr_info("pmd_size: %d\n", pmd_size);
+	pr_info("pte_size: %d\n", pte_size);
 
 	return 0;
 }

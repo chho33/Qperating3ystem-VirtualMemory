@@ -32,11 +32,21 @@ struct expose_pgtbl_args {
 struct my_mm_walk;
 
 struct my_mm_walk_ops {
-	int (*pgd_entry)(struct my_mm_walk *walk, unsigned long addr, bool do_copy);
-	int (*p4d_entry)(struct my_mm_walk *walk, unsigned long addr, bool do_copy);
-	int (*pud_entry)(struct my_mm_walk *walk, unsigned long addr, bool do_copy);
-	int (*pmd_entry)(struct my_mm_walk *walk, unsigned long addr, bool do_copy, pte_t *pte);
-	int (*pte_entry)(struct my_mm_walk *walk, unsigned long addr, bool do_copy, pte_t *pte);
+	int (*pgd_entry)(struct my_mm_walk *walk,
+			 unsigned long addr,
+			 bool do_copy);
+	int (*p4d_entry)(struct my_mm_walk *walk,
+			 unsigned long addr,
+			 bool do_copy);
+	int (*pud_entry)(struct my_mm_walk *walk,
+			 unsigned long addr,
+			 bool do_copy);
+	int (*pmd_entry)(struct my_mm_walk *walk,
+			 unsigned long addr,
+			 bool do_copy, pte_t *pte);
+	int (*pte_entry)(struct my_mm_walk *walk,
+			 unsigned long addr,
+			 bool do_copy, pte_t *pte);
 };
 
 

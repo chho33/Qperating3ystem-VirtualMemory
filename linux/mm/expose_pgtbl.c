@@ -615,7 +615,7 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid, struct expose_pgtbl_args __user *
 		head = head->next;
 	}
 
-	vma_pte = find_vma(src_mm, kargs.page_table_addr);
+	vma_pte = find_vma(current->mm, kargs.page_table_addr);
 	remap_head = remap_head->next;
 	while(remap_head) {
 		//printk("remap %lx to %lx\n", remap_head->kaddr, remap_head->uaddr);

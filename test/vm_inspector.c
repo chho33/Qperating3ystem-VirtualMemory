@@ -140,16 +140,23 @@ int main(int argc, char *argv[])
         unsigned long *fake_puds;
         unsigned long *fake_pmds;
         unsigned long *page_table_addr;
+        unsigned long curr_vaddr, curr_phys_addr, *curr_ptr;
 	struct n_pg spaces;
+	int verbose = 0;
+
+	if (argc > 1) {
+		if (!strcmp(argv[1], "-v"))
+			verbose = 1;
+	}
 
 	get_pagetable_layout_syscall(NULL);
 	show_layout();
 	printf("Enter begin_vaddr in hex:");
 	scanf("%lx", &(args.begin_vaddr));
-	printf("Your input is:%lx\n", args.begin_vaddr);
+	//printf("Your input is:%lx\n", args.begin_vaddr);
 	printf("Enter end_vaddr in hex:");
 	scanf("%lx", &(args.end_vaddr));
-	printf("Your input is:%lx\n", args.end_vaddr);
+	//printf("Your input is:%lx\n", args.end_vaddr);
 	spaces = calculate_pg(args.begin_vaddr, args.end_vaddr);
 
 	page_table_addr = mmap(NULL, spaces.num_page * ADDR_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -164,35 +171,64 @@ int main(int argc, char *argv[])
 	args.fake_pmds = (unsigned long) fake_pmds;
 	args.page_table_addr = (unsigned long) page_table_addr;
 
-	printf("fake_pgd: %lx \n", args.fake_pgd);
-	printf("fake_p4ds: %lx \n", args.fake_p4ds);
-	printf("fake_puds: %lx \n", args.fake_puds);
-	printf("fake_pmds: %lx \n", args.fake_pmds);
-	printf("page_table_addr: %lx \n", args.page_table_addr);
+	//printf("fake_pgd: %lx \n", args.fake_pgd);
+	//printf("fake_p4ds: %lx \n", args.fake_p4ds);
+	//printf("fake_puds: %lx \n", args.fake_puds);
+	//printf("fake_pmds: %lx \n", args.fake_pmds);
+	//printf("page_table_addr: %lx \n", args.page_table_addr);
 
 	if (expose_page_table_syscall(-1, &args))
 		perror("Error:");
+
 	//unsigned long test;
 	//unsigned long *test_ptr = &test;
 	//test_ptr = (unsigned long *) args.fake_pgd;
 	//*test_ptr = 0x556713b7e000;
 	//printf("%lx\n", test);
-	unsigned long *tmp, *pte;
-	int iters = (args.end_vaddr - args.begin_vaddr) >> 12;
-	tmp = fake_pgd + pgd_index(args.begin_vaddr);
-	printf("pgd ptr, pud ptr: %lx, %lx\n", tmp, *tmp);
-	tmp = (unsigned long *)*tmp + pud_index(args.begin_vaddr);
-	printf("pud ptr, pmd ptr: %lx, %lx\n", tmp, *tmp);
-	tmp = (unsigned long *)*tmp + pmd_index(args.begin_vaddr);
-	printf("pmd ptr, pte ptr: %lx, %lx\n", tmp, *tmp);
-	tmp = (unsigned long *)*tmp + pte_index(args.begin_vaddr); 
-	printf("pte ptr, pte val: %lx, %lx\n", tmp, *tmp);
+	
+	//unsigned long *tmp;
+	//int iters = (args.end_vaddr - args.begin_vaddr) >> 12;
 
-	for (int i=0; i<iters; i++) {
-		tmp++;
-		printf("pte ptr, pte val: %lx, %lx\n", tmp, *tmp);
+	//tmp = fake_pgd + pgd_index(args.begin_vaddr);
+	//printf("pgd ptr, pud ptr: %lx, %lx\n", tmp, *tmp);
+	//tmp = (unsigned long *)*tmp + pud_index(args.begin_vaddr);
+	//printf("pud ptr, pmd ptr: %lx, %lx\n", tmp, *tmp);
+	//tmp = (unsigned long *)*tmp + pmd_index(args.begin_vaddr);
+	//printf("pmd ptr, pte ptr: %lx, %lx\n", tmp, *tmp);
+	//tmp = (unsigned long *)*tmp + pte_index(args.begin_vaddr); 
+	//printf("pte ptr, pte val: %lx, %lx\n", tmp, *tmp);
 
-	}
+	//while(iters--) {
+	//	printf("pte ptr, pte val: %#014lx %#013lx %d %d %d %d\n", tmp, get_phys_addr(*tmp), young_bit((unsigned long)tmp), dirty_bit((unsigned long)tmp), write_bit((unsigned long)tmp), user_bit((unsigned long)tmp));
+	//	tmp++;
+	//}
+
+	curr_vaddr = args.begin_vaddr;
+	do {
+		curr_ptr = fake_pgd + pgd_index(curr_vaddr);
+		curr_ptr = (unsigned long *)*curr_ptr + pud_index(curr_vaddr);
+		curr_ptr = (unsigned long *)*curr_ptr + pmd_index(curr_vaddr);
+		curr_ptr = (unsigned long *)*curr_ptr + pte_index(curr_vaddr); 
+		curr_phys_addr = get_phys_addr(*curr_ptr);
+
+		if (curr_phys_addr == 0 && !verbose) { 
+			curr_vaddr += PAGE_SIZE;
+			continue;
+		}
+
+		printf("%#014lx %#013lx %d %d %d %d\n",
+				curr_vaddr, curr_phys_addr,
+				young_bit((unsigned long)curr_ptr),
+				dirty_bit((unsigned long)curr_ptr),
+				write_bit((unsigned long)curr_ptr),
+				user_bit((unsigned long)curr_ptr)
+		);
+		curr_vaddr += PAGE_SIZE;
+
+	} while(curr_vaddr != args.end_vaddr);
+
+	verbose = 0;
+
 	//unsigned long *test = (unsigned long *) args.fake_pgd;
 	//test[0] = 0x556713b7dead;
 	//test[1] = 0x5567deaddead;
@@ -207,11 +243,11 @@ int main(int argc, char *argv[])
 	//printf("fake_pgd[2]: %lx\n", test[2]);
 	//printf("fake_pgd[3]: %lx\n", test[3]);
 
-	//munmap(fake_pgd, pgd_size);
-	//munmap(fake_p4ds, p4d_size);
-	//munmap(fake_puds, pud_size);
-	//munmap(fake_pmds, pmd_size);
-	//munmap(page_table_addr, pte_size);
+	munmap(fake_pgd, spaces.num_pgd * ADDR_SIZE);
+	munmap(fake_p4ds, spaces.num_p4d * ADDR_SIZE);
+	munmap(fake_puds, spaces.num_pud * ADDR_SIZE);
+	munmap(fake_pmds, spaces.num_pmd * ADDR_SIZE);
+	munmap(page_table_addr, spaces.num_page * ADDR_SIZE);
 
 	return 0;
 }

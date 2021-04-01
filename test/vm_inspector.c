@@ -201,21 +201,21 @@ int main(int argc, char *argv[])
 	printf("spaces.num_p4d: %ld\n", spaces.num_p4d);
 	printf("spaces.num_pgd: %ld\n", spaces.num_pgd);
 
-	page_table_addr = mmap(NULL, spaces.num_page * ADDR_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	page_table_addr = mmap(NULL, spaces.num_page * PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	if (page_table_addr == (void *) -1) {
 		fprintf(stderr, "mmap error: %s\n", strerror(errno));
 		exit(-1);
 	}
 	fake_pmds = mmap(NULL, spaces.num_pmd * ADDR_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	if (fake_pmds == (void *) -1) {
-		munmap(page_table_addr, spaces.num_page * ADDR_SIZE);
+		munmap(page_table_addr, spaces.num_page * PAGE_SIZE);
 		fprintf(stderr, "mmap error: %s\n", strerror(errno));
 		exit(-1);
 	}
 	fake_puds = mmap(NULL, spaces.num_pud * ADDR_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	if (fake_puds == (void *) -1) {
 		munmap(fake_pmds, spaces.num_pmd * ADDR_SIZE);
-		munmap(page_table_addr, spaces.num_page * ADDR_SIZE);
+		munmap(page_table_addr, spaces.num_page * PAGE_SIZE);
 		fprintf(stderr, "mmap error: %s\n", strerror(errno));
 		exit(-1);
 	}
@@ -223,7 +223,7 @@ int main(int argc, char *argv[])
 	if (fake_p4ds == (void *) -1) {
 		munmap(fake_puds, spaces.num_pud * ADDR_SIZE);
 		munmap(fake_pmds, spaces.num_pmd * ADDR_SIZE);
-		munmap(page_table_addr, spaces.num_page * ADDR_SIZE);
+		munmap(page_table_addr, spaces.num_page * PAGE_SIZE);
 		fprintf(stderr, "mmap error: %s\n", strerror(errno));
 		exit(-1);
 	}
@@ -232,7 +232,7 @@ int main(int argc, char *argv[])
 		munmap(fake_p4ds, spaces.num_p4d * ADDR_SIZE);
 		munmap(fake_puds, spaces.num_pud * ADDR_SIZE);
 		munmap(fake_pmds, spaces.num_pmd * ADDR_SIZE);
-		munmap(page_table_addr, spaces.num_page * ADDR_SIZE);
+		munmap(page_table_addr, spaces.num_page * PAGE_SIZE);
 		fprintf(stderr, "mmap error: %s\n", strerror(errno));
 		exit(-1);
 	}
@@ -255,7 +255,7 @@ int main(int argc, char *argv[])
 		munmap(fake_p4ds, spaces.num_p4d * ADDR_SIZE);
 		munmap(fake_puds, spaces.num_pud * ADDR_SIZE);
 		munmap(fake_pmds, spaces.num_pmd * ADDR_SIZE);
-		munmap(page_table_addr, spaces.num_page * ADDR_SIZE);
+		munmap(page_table_addr, spaces.num_page * PAGE_SIZE);
 		exit(-1);
 	}
 
@@ -333,7 +333,7 @@ print_info:
 	munmap(fake_p4ds, spaces.num_p4d * ADDR_SIZE);
 	munmap(fake_puds, spaces.num_pud * ADDR_SIZE);
 	munmap(fake_pmds, spaces.num_pmd * ADDR_SIZE);
-	munmap(page_table_addr, spaces.num_page * ADDR_SIZE);
+	munmap(page_table_addr, spaces.num_page * PAGE_SIZE);
 
 	return 0;
 }

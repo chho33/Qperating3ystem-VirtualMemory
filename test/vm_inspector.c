@@ -128,18 +128,18 @@ static inline int user_bit(unsigned long pte_entry)
 void show_layout()
 {
 	char c[1000];
-	char *status;
 	FILE *fptr;
+
 	if ((fptr = fopen("/proc/self/maps", "r")) == NULL) {
 		printf("Error! opening file");
 		// Program exits if file pointer returns NULL.
 		exit(1);
 	}
-	
-	do {
-		status = fscanf(fptr, "%s", &c);
+
+	while (fscanf(fptr, "%s", c)!=EOF) {
 		printf("%s\n", c);
-	} while (status != -1);
+	}
+
 	fclose(fptr);
 }
 
@@ -147,7 +147,7 @@ int main(int argc, char *argv[])
 {
 	struct pagetable_layout_info pt_info;
 	struct expose_pgtbl_args args;
-	size_t addr_len;
+	pid_t pid;
         unsigned long *fake_pgd;
         unsigned long *fake_p4ds;
         unsigned long *fake_puds;
@@ -158,18 +158,48 @@ int main(int argc, char *argv[])
 	int verbose = 0;
 	int ybit, dbit, wbit, ubit;
 
-	if (argc > 1) {
+	if (argc < 4) {
+		if (argc == 2 && !strcmp(argv[1], "-h")) {
+			show_layout();
+			printf("Enter begin_vaddr in hex:");
+			scanf("%lx", &(args.begin_vaddr));
+			printf("Enter end_vaddr in hex:");
+			scanf("%lx", &(args.end_vaddr));
+			pid = -1;
+		} else {
+			fprintf(stderr, "[Error] Please follow the usage: ./vm_inspector [-v] pid va_begin va_end\n");
+			exit(-1);
+		}
+	} else if (argc == 4) {
+		// check all param are valid;
+		pid = (pid_t) atoi(argv[1]);
+		args.begin_vaddr = (unsigned long) strtoul(argv[2], NULL, 16);
+		args.end_vaddr = (unsigned long) strtoul(argv[3], NULL, 16);
+	} else if (argc == 5) {
+		// check all param are valid;
+		pid = (pid_t) atoi(argv[2]);
+		args.begin_vaddr = (unsigned long) strtoul(argv[3], NULL, 16);
+		args.end_vaddr = (unsigned long) strtoul(argv[4], NULL, 16);
 		if (!strcmp(argv[1], "-v"))
 			verbose = 1;
 	}
 
-	get_pagetable_layout_syscall(&pt_info);
-	show_layout();
-	printf("Enter begin_vaddr in hex:");
-	scanf("%lx", &(args.begin_vaddr));
-	printf("Enter end_vaddr in hex:");
-	scanf("%lx", &(args.end_vaddr));
+	if (get_pagetable_layout_syscall(&pt_info)) {
+		fprintf(stderr, "get_pagetable_layout syscall error: %s\n", strerror(errno));
+		exit(-1);
+	}
+
+	printf("pid %d\n", pid);
+	printf("args.begin_vaddr: %lx\n", args.begin_vaddr);
+	printf("args.end_vaddr: %lx\n", args.end_vaddr);
+
 	spaces = calculate_pg(args.begin_vaddr, args.end_vaddr, &pt_info);
+
+	printf("spaces.num_page: %ld\n", spaces.num_page);
+	printf("spaces.num_pmd: %ld\n", spaces.num_pmd);
+	printf("spaces.num_pud: %ld\n", spaces.num_pud);
+	printf("spaces.num_p4d: %ld\n", spaces.num_p4d);
+	printf("spaces.num_pgd: %ld\n", spaces.num_pgd);
 
 	page_table_addr = mmap(NULL, spaces.num_page * ADDR_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	if (page_table_addr == (void *) -1) {
@@ -219,8 +249,8 @@ int main(int argc, char *argv[])
 	//printf("fake_pmds: %lx \n", args.fake_pmds);
 	//printf("page_table_addr: %lx \n", args.page_table_addr);
 
-	if (expose_page_table_syscall(-1, &args)) {
-		perror("Error:");
+	if (expose_page_table_syscall(pid, &args)) {
+		fprintf(stderr, "expose_page_table syscall error: %s\n", strerror(errno));
 		munmap(fake_pgd, spaces.num_pgd * ADDR_SIZE);
 		munmap(fake_p4ds, spaces.num_p4d * ADDR_SIZE);
 		munmap(fake_puds, spaces.num_pud * ADDR_SIZE);
@@ -272,12 +302,13 @@ int main(int argc, char *argv[])
 			if (!verbose) {
 				curr_vaddr += PAGE_SIZE;
 				continue;
-			} else
-				print_vaddr = 0xdead00000000;
-				ybit = 0;
-				dbit = 0;
-				wbit = 0;
-				ubit = 0;
+			}
+			print_vaddr = 0xdead00000000;
+			ybit = 0;
+			dbit = 0;
+			wbit = 0;
+			ubit = 0;
+
 		} else {
 			print_vaddr = curr_vaddr;
 			ybit = young_bit((unsigned long)curr_ptr);
@@ -296,7 +327,7 @@ print_info:
 				ubit
 		);
 		curr_vaddr += PAGE_SIZE;
-	} while(curr_vaddr != args.end_vaddr);
+	} while(curr_vaddr < args.end_vaddr);
 
 	munmap(fake_pgd, spaces.num_pgd * ADDR_SIZE);
 	munmap(fake_p4ds, spaces.num_p4d * ADDR_SIZE);

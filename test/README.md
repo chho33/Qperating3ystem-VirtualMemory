@@ -36,7 +36,7 @@ Explanation: <br />
 For this case, we let the child process sleep for 5 ms so that during this time we can still observe that the address stays the same with parent.<br />
 After that, the printf function will trigger the change in address space.<br />
 The function is as below,<br />
-'''
+<p>
 child = fork();
 	if (child == 0) {
 		sleep(5);
@@ -44,5 +44,5 @@ child = fork();
 		printf("Child write: %#02lx at %#014lx\n", *case6, (unsigned long) case6);
 		sleep(10);
 	}
-'''
+</p>
 As we can see,<br />

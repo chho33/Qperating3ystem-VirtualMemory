@@ -527,6 +527,7 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid,
 
 	vma_pte = find_vma(current->mm, kargs.page_table_addr);
 	remap_head = remap_head->next;
+	down_write(&(vma_pte->vm_mm->mmap_sem));
 	while (remap_head) {
 		pfn = __pa(remap_head->kaddr) >> PAGE_SHIFT;
 		//pr_info("remap %lx (pfn: %lx) to %lx\n",
@@ -536,6 +537,7 @@ SYSCALL_DEFINE2(expose_page_table, pid_t, pid,
 			return -EFAULT;
 		remap_head = remap_head->next;
 	}
+	up_write(&(vma_pte->vm_mm->mmap_sem));
 
 	pr_info("kfree-ing...\n");
 	kfree(dummy->next);

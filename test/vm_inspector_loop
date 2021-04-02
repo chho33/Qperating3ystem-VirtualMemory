@@ -1,0 +1,39 @@
+#!/bin/bash
+
+pid=0
+va_begin=0
+va_end=0
+
+if [ "$#" -eq 3 ]
+then
+	pid=$1
+	va_begin=$2
+	va_end=$3
+elif [ "$#" -eq 4 ]
+then
+	if [ "$1" != "-v" ]
+	then
+		echo "Usage: ./vm_inspector [-v] pid va_begin va_end"
+		exit
+	fi
+	pid=$2
+	va_begin=$3
+	va_end=$4
+else
+	echo "Usage: ./vm_inspector [-v] pid va_begin va_end"
+	exit
+fi
+
+
+while true
+	do
+	if [ "$#" -eq 3 ]
+	then
+		./vm_inspector $pid $va_begin $va_end;	
+	elif [ "$#" -eq 4 ]
+	then
+		./vm_inspector -v $pid $va_begin $va_end;	
+	fi
+  	sleep 1;
+	echo "------------------------------";
+done

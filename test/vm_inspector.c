@@ -11,22 +11,7 @@
 #define __expose_page_table 437
 #define PAGE_SIZE 4096
 #define ADDR_SIZE sizeof(unsigned long)
-#define pgd_index(address) (((address) >> 39) & (512 - 1))
 
-static inline unsigned long pud_index(unsigned long address)
-{
-	return (address >> 30) & (512 - 1);
-}
-
-static inline unsigned long pmd_index(unsigned long address)
-{
-	return (address >> 21) & (512 - 1);
-}
-
-static inline unsigned long pte_index(unsigned long address)
-{
-	return (address >> 12) & (512 - 1);
-}
 
 struct pagetable_layout_info {
 	uint32_t pgdir_shift;
@@ -46,7 +31,6 @@ struct expose_pgtbl_args {
 	unsigned long end_vaddr;
 };
 
-
 struct n_pg {
 	unsigned long num_page;
 	unsigned long num_pmd;
@@ -55,6 +39,35 @@ struct n_pg {
 	unsigned long num_pgd;
 };
 
+static inline unsigned long pgd_index(unsigned long address,
+		struct pagetable_layout_info *pt_info)
+{
+	return (address >> pt_info->pgdir_shift) & (512 - 1);
+}
+
+static inline unsigned long p4d_index(unsigned long address,
+		struct pagetable_layout_info *pt_info)
+{
+	return (address >> pt_info->p4d_shift) & (512 - 1);
+}
+
+static inline unsigned long pud_index(unsigned long address,
+		struct pagetable_layout_info *pt_info)
+{
+	return (address >> pt_info->pud_shift) & (512 - 1);
+}
+
+static inline unsigned long pmd_index(unsigned long address,
+		struct pagetable_layout_info *pt_info)
+{
+	return (address >> pt_info->pmd_shift) & (512 - 1);
+}
+
+static inline unsigned long pte_index(unsigned long address,
+		struct pagetable_layout_info *pt_info)
+{
+	return (address >> pt_info->page_shift) & (512 - 1);
+}
 
 struct n_pg calculate_pg(unsigned long start, unsigned long end,
 		struct pagetable_layout_info *pt_info)
@@ -277,7 +290,7 @@ int main(int argc, char *argv[])
 
 	curr_vaddr = args.begin_vaddr;
 	do {
-		curr_ptr = fake_pgd + pgd_index(curr_vaddr);
+		curr_ptr = fake_pgd + pgd_index(curr_vaddr, &pt_info);
 		if (*curr_ptr == 0) {
 			if (!verbose) {
 				curr_vaddr += PAGE_SIZE;
@@ -292,9 +305,32 @@ int main(int argc, char *argv[])
 				goto print_info;
 			}
 		}
-		curr_ptr = (unsigned long *)*curr_ptr + pud_index(curr_vaddr);
-		curr_ptr = (unsigned long *)*curr_ptr + pmd_index(curr_vaddr);
-		curr_ptr = (unsigned long *)*curr_ptr + pte_index(curr_vaddr);
+
+		if (pt_info.p4d_shift != pt_info.pgdir_shift)
+			curr_ptr = (unsigned long *) *curr_ptr +
+				p4d_index(curr_vaddr, &pt_info);
+
+		if (pt_info.pud_shift != pt_info.pgdir_shift
+			&& pt_info.pud_shift != pt_info.p4d_shift) {
+			curr_ptr = (unsigned long *) *curr_ptr +
+				pud_index(curr_vaddr, &pt_info);
+		}
+
+		if (pt_info.pmd_shift != pt_info.pgdir_shift
+			&& pt_info.pmd_shift != pt_info.p4d_shift 
+			&& pt_info.pmd_shift != pt_info.pud_shift) {
+			curr_ptr = (unsigned long *) *curr_ptr +
+				pmd_index(curr_vaddr, &pt_info);
+		}
+
+		if (pt_info.page_shift != pt_info.pgdir_shift
+			&& pt_info.page_shift != pt_info.p4d_shift
+			&& pt_info.page_shift != pt_info.pud_shift
+			&& pt_info.page_shift != pt_info.pmd_shift) {
+			curr_ptr = (unsigned long *) *curr_ptr +
+				pte_index(curr_vaddr, &pt_info);
+		}
+
 		curr_phys_addr = get_phys_addr(*curr_ptr);
 
 		if (curr_phys_addr == 0) {
